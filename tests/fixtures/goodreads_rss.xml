@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<rss version="2.0">
+<channel>
+<title>Example's bookshelf: read</title>
+<item>
+  <guid><![CDATA[https://www.goodreads.com/review/show/1?utm_medium=api]]></guid>
+  <pubDate><![CDATA[Fri, 15 Mar 2024 10:00:00 -0700]]></pubDate>
+  <title>Example Book, With Comma</title>
+  <link><![CDATA[https://www.goodreads.com/review/show/1]]></link>
+  <book_id>111</book_id>
+  <book_image_url><![CDATA[https://images.example/111.jpg]]></book_image_url>
+  <book_large_image_url><![CDATA[https://images.example/111-large.jpg]]></book_large_image_url>
+  <book id="111">
+    <num_pages>374</num_pages>
+  </book>
+  <author_name>Ann Author</author_name>
+  <isbn>0439023483</isbn>
+  <user_rating>5</user_rating>
+  <user_read_at><![CDATA[Thu, 14 Mar 2024 00:00:00 -0700]]></user_read_at>
+  <user_date_added><![CDATA[Fri, 01 Dec 2023 08:00:00 -0800]]></user_date_added>
+  <average_rating>4.33</average_rating>
+  <book_published>2008</book_published>
+</item>
+<item>
+  <title>Brand &amp; New</title>
+  <book_id>555</book_id>
+  <book_image_url><![CDATA[https://s.gr-assets.com/assets/nophoto/book/111x148.png]]></book_image_url>
+  <book id="555"><num_pages></num_pages></book>
+  <author_name>Ed Essayist</author_name>
+  <isbn></isbn>
+  <user_rating>0</user_rating>
+  <user_read_at><![CDATA[Mon, 06 Jan 2025 00:00:00 -0800]]></user_read_at>
+  <user_date_added><![CDATA[Sun, 05 Jan 2025 00:00:00 -0800]]></user_date_added>
+  <average_rating>3.50</average_rating>
+  <book_published></book_published>
+</item>
+</channel>
+</rss>

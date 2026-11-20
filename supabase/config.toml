@@ -1,0 +1,10 @@
+project_id = "reading-app"
+
+# The Apple Shortcut can't sign in, so the capture function checks its own
+# CAPTURE_TOKEN header instead of a Supabase JWT.
+[functions.capture]
+verify_jwt = false
+
+# Called by the signed-in web app ("Sync now") and by the optional daily cron.
+[functions.goodreads-sync]
+verify_jwt = true
