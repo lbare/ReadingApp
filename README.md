@@ -62,7 +62,7 @@ Copy `supabase/functions/.env.example` to `supabase/functions/.env` and fill it 
 
 - `ANTHROPIC_API_KEY`: from console.anthropic.com. Each capture is one Claude Opus 5.5 call at low effort, about a cent or two per capture.
 - `CAPTURE_TOKEN`: any long random string (`openssl rand -hex 24`). The Shortcut sends it.
-- `APP_URL`: where the web app is hosted (step 4), no trailing slash.
+- `APP_URL`: where the web app is hosted (step 4), no trailing slash, e.g. `https://<user>.github.io/<repo>`.
 
 ```bash
 supabase secrets set --env-file supabase/functions/.env
@@ -87,12 +87,17 @@ In the Supabase dashboard:
    all data, so this keeps it yours.
 3. **Authentication → URL Configuration**: set *Site URL* to your `APP_URL` and add `APP_URL/**` to *Redirect URLs*.
 
-### 4. Host the web app
+### 4. Host the web app (GitHub Pages)
 
-Copy `.env.example` to `.env.local`, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (Project Settings → API),
-then deploy the static build (`npm run build` → `dist/`) to any static host. Vercel and Netlify work as-is
-(`vercel.json` and `public/_redirects` send every route to `index.html`). Set the same two `VITE_` variables in the
-host's settings.
+`.github/workflows/deploy.yml` tests, builds and publishes the app to `https://<user>.github.io/<repo>/` on every push
+to `main`. One-time setup (free accounts need the repo to be public; nothing secret is in it):
+
+1. **Settings → Pages → Source:** GitHub Actions.
+2. **Settings → Secrets and variables → Actions → Variables:** add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
+   (Project Settings → API in Supabase). Both are public by design; the database is protected by row-level security.
+
+Because Pages can't rewrite URLs, the workflow copies `index.html` to `404.html` so links like `/confirm/<id>` still
+open the app. For local development, put the same two variables in `.env.local` (see `.env.example`).
 
 On the iPhone, open the site in Safari, sign in, and **Share → Add to Home Screen** for an app-like icon.
 
