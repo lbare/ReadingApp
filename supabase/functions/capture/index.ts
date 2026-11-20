@@ -184,7 +184,13 @@ Deno.serve(async (req) => {
     if (items.length === 0) error = "No books found. Search for it by name below.";
   } catch (e) {
     console.error(e);
-    error = e instanceof Anthropic.APIError ? `Claude API error (${e.status ?? "network"})` : (e as Error).message;
+    if (e instanceof Anthropic.APIError) {
+      // e.g. "Your credit balance is too low…" — shown on the confirmation page.
+      const detail = (e.error as { error?: { message?: string } } | undefined)?.error?.message;
+      error = `Claude API error (${e.status ?? "network"})${detail ? `: ${detail}` : ""}`;
+    } else {
+      error = (e as Error).message;
+    }
   }
 
   const { data, error: dbError } = await supabase
