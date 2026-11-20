@@ -45,3 +45,10 @@ describe("computeStats", () => {
     expect(computeStats(books, 52, "2025-03-31", 2023).pace).toBeNull();
   });
 });
+
+describe("half-star ratings", () => {
+  it("averages them", () => {
+    const books = [read("2026-01-01", 100, 3.5), read("2026-02-01", 100, 4)];
+    expect(computeStats(books, 52, "2026-03-01").avgRating).toBe(3.8);
+  });
+});

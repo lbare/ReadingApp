@@ -23,10 +23,15 @@ export function bookMeta(b: { author: string | null; published_year: number | nu
 
 export function Stars({ value }: { value: number | null }) {
   if (!value) return null;
+  const full = Math.floor(value);
+  const half = value - full >= 0.5;
   return (
     <span className="muted" aria-label={`${value} out of 5`}>
-      {"★".repeat(value)}
-      {"☆".repeat(5 - value)}
+      <span aria-hidden="true">
+        {"★".repeat(full)}
+        {half && "½"}
+        {"☆".repeat(5 - full - (half ? 1 : 0))}
+      </span>
     </span>
   );
 }

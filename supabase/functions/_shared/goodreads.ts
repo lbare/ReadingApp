@@ -89,6 +89,18 @@ function toInt(v: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** "3.5" → 3.5, "4" → 4; 0 or blank (unrated) → null. Rounded to the nearest half star. */
+function toRating(v: string | undefined): number | null {
+  const n = toFloat(v);
+  if (n == null || n <= 0) return null;
+  return Math.min(5, Math.round(n * 2) / 2);
+}
+
+/** Collapse runs of whitespace ("Stephen  King" → "Stephen King"). */
+function clean(v: string | undefined): string {
+  return (v ?? "").replace(/\s+/g, " ").trim();
+}
+
 function toFloat(v: string | undefined): number | null {
   const n = parseFloat((v ?? "").trim());
   return Number.isFinite(n) ? n : null;
@@ -124,19 +136,19 @@ export function parseGoodreadsCsv(text: string): CsvImportResult {
   const books: BookFields[] = [];
   let skipped = 0;
   for (const r of rows.slice(1)) {
-    const title = (get(r, "Title") ?? "").trim();
+    const title = clean(get(r, "Title"));
     if (!title) {
       skipped++;
       continue;
     }
     const shelf = mapGoodreadsShelf(get(r, "Exclusive Shelf") ?? "");
     const dateRead = csvDate(get(r, "Date Read"));
-    const rating = toInt(get(r, "My Rating"));
+    const rating = toRating(get(r, "My Rating"));
     const readCount = toInt(get(r, "Read Count"));
     books.push(
       emptyBook({
         title,
-        author: (get(r, "Author") ?? "").trim() || null,
+        author: clean(get(r, "Author")) || null,
         isbn13: cleanIsbn(get(r, "ISBN13")),
         isbn10: cleanIsbn(get(r, "ISBN")),
         goodreads_id: (get(r, "Book Id") ?? "").trim() || null,
@@ -144,7 +156,7 @@ export function parseGoodreadsCsv(text: string): CsvImportResult {
         avg_rating: toFloat(get(r, "Average Rating")),
         published_year: toInt(get(r, "Original Publication Year")) ?? toInt(get(r, "Year Published")),
         shelf,
-        my_rating: rating && rating > 0 ? rating : null,
+        my_rating: rating,
         date_added: csvDate(get(r, "Date Added")),
         date_read: dateRead,
         read_count: readCount ?? (shelf === "read" ? 1 : 0),
@@ -211,7 +223,7 @@ export function parseGoodreadsRss(xml: string, shelf: Shelf): BookFields[] {
   return items.map((item) => {
     const bookBlock = item.match(/<book id="?(\d+)"?>([\s\S]*?)<\/book>/);
     const isbn = cleanIsbn(tag(item, "isbn") ?? undefined);
-    const rating = toInt(tag(item, "user_rating") ?? undefined);
+    const rating = toRating(tag(item, "user_rating") ?? undefined);
     const dateRead = rssDate(tag(item, "user_read_at"));
     const cover = tag(item, "book_large_image_url") || tag(item, "book_image_url");
     return emptyBook({
@@ -226,7 +238,7 @@ export function parseGoodreadsRss(xml: string, shelf: Shelf): BookFields[] {
       avg_rating: toFloat(tag(item, "average_rating") ?? undefined),
       published_year: toInt(tag(item, "book_published") ?? undefined),
       shelf,
-      my_rating: rating && rating > 0 ? rating : null,
+      my_rating: rating,
       date_added: rssDate(tag(item, "user_date_added")),
       date_read: dateRead,
       read_count: shelf === "read" ? 1 : 0,

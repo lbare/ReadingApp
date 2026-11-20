@@ -94,3 +94,19 @@ describe("links and ids", () => {
     expect(parseGoodreadsUserId("nope")).toBeNull();
   });
 });
+
+describe("ratings", () => {
+  const header =
+    "Book Id,Title,Author,Author l-f,Additional Authors,ISBN,ISBN13,My Rating,Publisher,Binding,Number of Pages,Year Published,Original Publication Year,Date Read,Date Added,Bookshelves,Bookshelves with positions,Exclusive Shelf,My Review,Spoiler,Private Notes,Read Count,Owned Copies";
+  const row = (rating: string) => `1,Some Title,Stephen  King,"King, Stephen",,"=""""","=""""",${rating},Pub,Paperback,300,2020,2020,2026/11/08,2026/10/13,,,read,,,,1,0`;
+
+  it("keeps half stars and treats 0 as unrated", () => {
+    const { books } = parseGoodreadsCsv([header, row("3.5"), row("4.0"), row("0"), row("2.5")].join("\n"));
+    expect(books.map((b) => b.my_rating)).toEqual([3.5, 4, null, 2.5]);
+  });
+
+  it("works without the Average Rating column and tidies spacing", () => {
+    const { books } = parseGoodreadsCsv([header, row("3.5")].join("\n"));
+    expect(books[0]).toMatchObject({ author: "Stephen King", avg_rating: null, pages: 300, date_read: "2026-11-08" });
+  });
+});
