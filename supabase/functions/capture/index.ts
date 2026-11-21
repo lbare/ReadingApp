@@ -16,7 +16,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@1.8.0";
 import { createClient } from "npm:@supabase/supabase-js@2.119.0";
 import { corsHeaders, json, safeEqual } from "../_shared/http.ts";
-import { findCandidates } from "../_shared/openlibrary.ts";
+import { dedupe, findCandidates, rank } from "../_shared/openlibrary.ts";
 import { fetchTikTokInfo, firstUrl, isTikTokUrl } from "../_shared/tiktok.ts";
 import type { CaptureItem } from "../_shared/types.ts";
 
@@ -52,14 +52,26 @@ Return only books that are actually named or clearly shown (title on a cover, in
 Use the book's real published title and fill in the author when you are confident who wrote it.
 Ignore hashtags, creator names and generic phrases like "my top 5". If no specific book is identifiable, return an empty list.`;
 
-type ExtractInput = { kind: "text"; text: string } | { kind: "image"; base64: string; mediaType: ImageType; context: string };
+type ExtractInput =
+  | { kind: "text"; text: string }
+  | { kind: "typed"; text: string }
+  | { kind: "image"; base64: string; mediaType: ImageType; context: string };
 type ImageType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 
 async function extractBooks(input: ExtractInput): Promise<{ title: string; author: string | null }[]> {
   const content: Anthropic.Beta.BetaContentBlockParam[] =
     input.kind === "text"
       ? [{ type: "text", text: `Post text:\n"""\n${input.text}\n"""\n\nWhich books does it mention?` }]
-      : [
+      : input.kind === "typed"
+        ? [
+            {
+              type: "text",
+              text:
+                `Someone typed this to look up a book: "${input.text}". It is a book title, possibly with the author. ` +
+                `Treat it as a title even if it is an ordinary word or phrase, and return the one book they most likely mean.`,
+            },
+          ]
+        : [
           { type: "image", source: { type: "base64", media_type: input.mediaType, data: input.base64 } },
           { type: "text", text: `${input.context} Which books does it show or mention?` },
         ];
@@ -82,6 +94,11 @@ async function extractBooks(input: ExtractInput): Promise<{ title: string; autho
     .map((b) => ({ title: b.title.trim(), author: b.author.trim() || null }))
     .filter((b) => b.title && !seen.has(b.title.toLowerCase()) && seen.add(b.title.toLowerCase()))
     .slice(0, MAX_BOOKS);
+}
+
+/** A short single line with no link: a title typed into the Shortcut rather than a shared post. */
+function isTyped(text: string): boolean {
+  return text.length > 0 && text.length <= 80 && !text.includes("\n") && !/https?:\/\//.test(text);
 }
 
 function sniffImageType(bytes: Uint8Array): ImageType | null {
@@ -180,11 +197,15 @@ Deno.serve(async (req) => {
     } else if (tiktok) {
       if (!tiktok.caption.trim()) throw new Error("This TikTok has no caption. Share a screenshot of the frame that shows the book.");
       input = { kind: "text", text: `${tiktok.caption}\n\n(creator: ${tiktok.author ?? "unknown"})` };
+    } else if (isTyped(text)) {
+      input = { kind: "typed", text };
     } else {
       input = { kind: "text", text };
     }
 
-    const found = await extractBooks(input);
+    let found = await extractBooks(input);
+    // A typed title Claude didn't recognise: search Open Library with it as-is.
+    if (found.length === 0 && input.kind === "typed") found = [{ title: text, author: null }];
     items = await Promise.all(
       found.map(async (q): Promise<CaptureItem> => ({
         query: q,
@@ -193,6 +214,13 @@ Deno.serve(async (req) => {
         book_id: null,
       })),
     );
+    // Typed title: Claude may pick a different book than the words typed
+    // ("cows" → "The Cows"), so also search exactly what was typed and rank
+    // titles that match it first, then the most-read.
+    if (input.kind === "typed" && items.length > 0) {
+      const raw = await findCandidates({ title: text, author: null }, { limit: 5 }).catch(() => []);
+      items[0].candidates = rank(dedupe([...items[0].candidates, ...raw]), text).slice(0, 5);
+    }
     if (items.length === 0) error = "No books found. Search for it by name below.";
   } catch (e) {
     console.error(e);
