@@ -52,7 +52,7 @@ Return only books that are actually named or clearly shown (title on a cover, in
 Use the book's real published title and fill in the author when you are confident who wrote it.
 Ignore hashtags, creator names and generic phrases like "my top 5". If no specific book is identifiable, return an empty list.`;
 
-type ExtractInput = { kind: "text"; text: string } | { kind: "image"; base64: string; mediaType: ImageType; text?: string };
+type ExtractInput = { kind: "text"; text: string } | { kind: "image"; base64: string; mediaType: ImageType; context: string };
 type ImageType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 
 async function extractBooks(input: ExtractInput): Promise<{ title: string; author: string | null }[]> {
@@ -61,10 +61,7 @@ async function extractBooks(input: ExtractInput): Promise<{ title: string; autho
       ? [{ type: "text", text: `Post text:\n"""\n${input.text}\n"""\n\nWhich books does it mention?` }]
       : [
           { type: "image", source: { type: "base64", media_type: input.mediaType, data: input.base64 } },
-          {
-            type: "text",
-            text: `This is a screenshot from a social media post${input.text ? ` (shared with this text: "${input.text}")` : ""}. Which books does it show or mention?`,
-          },
+          { type: "text", text: `${input.context} Which books does it show or mention?` },
         ];
 
   const response = await anthropic.beta.messages.create({
@@ -152,6 +149,22 @@ Deno.serve(async (req) => {
   let items: CaptureItem[] = [];
 
   try {
+    // A TikTok link: read the caption. Sharing from TikTok also hands the
+    // Shortcut the video's preview image, so this can arrive with an image too.
+    let tiktok: { caption: string; author: string | null } | null = null;
+    if (sourceUrl && isTikTokUrl(sourceUrl)) {
+      sourceType = "tiktok";
+      try {
+        const info = await fetchTikTokInfo(sourceUrl);
+        sourceUrl = info.url;
+        rawText = info.caption;
+        tiktok = { caption: info.caption, author: info.author };
+      } catch (e) {
+        if (!body.image) throw e; // with an image we can still try the preview frame
+        console.error(e);
+      }
+    }
+
     let input: ExtractInput;
     if (body.image) {
       if (body.image.byteLength > MAX_IMAGE_BYTES) {
@@ -159,15 +172,14 @@ Deno.serve(async (req) => {
       }
       const mediaType = sniffImageType(body.image);
       if (!mediaType) throw new Error("Unsupported image type (use JPEG, PNG, GIF or WebP).");
-      sourceType = "screenshot";
-      input = { kind: "image", base64: bytesToBase64(body.image), mediaType, text: text || undefined };
-    } else if (sourceUrl && isTikTokUrl(sourceUrl)) {
-      sourceType = "tiktok";
-      const info = await fetchTikTokInfo(sourceUrl);
-      sourceUrl = info.url;
-      rawText = info.caption;
-      if (!info.caption.trim()) throw new Error("This TikTok has no caption. Try sharing a screenshot instead.");
-      input = { kind: "text", text: `${info.caption}\n\n(creator: ${info.author ?? "unknown"})` };
+      if (sourceType !== "tiktok") sourceType = "screenshot";
+      const context = tiktok
+        ? `This is the preview frame of a TikTok video. Its caption: "${tiktok.caption}" (creator: ${tiktok.author ?? "unknown"}).`
+        : `This is a screenshot from a social media post${text ? ` (shared with this text: "${text}")` : ""}.`;
+      input = { kind: "image", base64: bytesToBase64(body.image), mediaType, context };
+    } else if (tiktok) {
+      if (!tiktok.caption.trim()) throw new Error("This TikTok has no caption. Share a screenshot of the frame that shows the book.");
+      input = { kind: "text", text: `${tiktok.caption}\n\n(creator: ${tiktok.author ?? "unknown"})` };
     } else {
       input = { kind: "text", text };
     }

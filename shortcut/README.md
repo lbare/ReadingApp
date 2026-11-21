@@ -15,7 +15,7 @@ Shortcuts can't be shipped as a file from here (they're signed per Apple ID), so
 Open **Shortcuts** → **+**, name it **Add Book**, then add these actions in order.
 
 1. **Shortcut details** (the ⓘ button): turn on **Show in Share Sheet**. Under *Receive*, choose **Images, Text and URLs**.
-   Set *If there's no input* to **Get Clipboard**.
+   Set *If there's no input* to **Continue**, so running it on its own lets you type a title (step 4).
 
 2. **Get Images from Input** (Input: *Shortcut Input*).
 
@@ -31,10 +31,15 @@ Open **Shortcuts** → **+**, name it **Add Book**, then add these actions in or
 
 4. **Otherwise**
 
-   1. **Get Contents of URL**: your function URL.
+   1. **If** *Shortcut Input* **does not have any value** (you ran it on its own, nothing shared)
+      1. **Ask for Input**: Text, prompt *Which book?*
+   2. **Otherwise**
+      1. **Text**: *Shortcut Input*
+   3. **End If**
+   4. **Get Contents of URL**: your function URL.
       - Method: **POST**
       - Headers: `x-capture-token` = *your token*
-      - Request Body: **JSON**, one field: `text` (Text) = *Shortcut Input*
+      - Request Body: **JSON**, one field: `text` (Text) = *If Result* (the typed title or the shared text)
 
 5. **End If**
 
@@ -44,11 +49,14 @@ Open **Shortcuts** → **+**, name it **Add Book**, then add these actions in or
 
 ## Using it
 
-- **TikTok:** Share → *More* (or scroll the app row) → **Add Book**. Pin it to the top of the share sheet for one tap. The
-  caption is read through TikTok's oEmbed endpoint. If the caption doesn't name the book, take a screenshot of the frame
-  that shows it and share that instead.
-- **Screenshot:** from the screenshot preview or Photos, Share → **Add Book**. Claude reads the covers and on-screen text.
-- **Anything else:** copy a title, then run Add Book from the home screen or widget (it falls back to the clipboard).
+- **Screenshot (the main way):** screenshot the frame that shows the book, then from the preview or Photos, Share →
+  **Add Book**. Claude reads the covers and on-screen text. Pin Add Book to the top of the share sheet for one tap.
+- **Type it:** run Add Book on its own (home screen icon, widget, Action Button, Back Tap, or "Hey Siri, Add Book") and
+  type the title, with the author if you know it. You get the same confirmation cards.
+- **TikTok link (best effort):** sharing a TikTok sends its caption and preview frame. Most BookTok videos only show the
+  title on screen, so a screenshot works better.
+
+No Shortcut handy? The **Add a book** search at the top of the Shelves page in the app does the same thing.
 
 The first time the confirmation page opens in Safari it asks you to sign in (magic link). After that the session sticks.
 
