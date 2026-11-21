@@ -23,6 +23,8 @@ export interface Store {
   applyMerge(plan: MergePlan): Promise<void>;
   getCapture(id: string): Promise<Capture | null>;
   listCaptures(limit: number): Promise<Capture[]>;
+  /** Captures with books still to sort, newest first. */
+  listPendingCaptures(): Promise<Capture[]>;
   saveCaptureItems(id: string, items: CaptureItem[]): Promise<void>;
   getSettings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<void>;
@@ -73,6 +75,9 @@ function supabaseStore(): Store {
     },
     async listCaptures(limit) {
       return check(await db.from("captures").select("*").order("created_at", { ascending: false }).limit(limit)) as Capture[];
+    },
+    async listPendingCaptures() {
+      return check(await db.from("captures").select("*").eq("status", "pending").order("created_at", { ascending: false }).limit(200)) as Capture[];
     },
     async saveCaptureItems(id, items) {
       const status = items.every((i) => i.decision) ? "done" : "pending";
@@ -169,6 +174,9 @@ function localStore(): Store {
     async listCaptures(limit) {
       return load().captures.slice(-limit).reverse();
     },
+    async listPendingCaptures() {
+      return load().captures.filter((c) => c.status === "pending").reverse();
+    },
     async saveCaptureItems(id, items) {
       const d = load();
       d.captures = d.captures.map((c) =>
@@ -219,12 +227,12 @@ export function nextPosition(books: Book[]): number {
  * Put a book on a shelf: insert it, or move the existing entry. Never moves a
  * book that's already read or being read back to a wishlist shelf.
  */
-export async function shelveBook(fields: BookFields, shelf: Extract<Shelf, "next_up" | "to_read">): Promise<{ book: Book; moved: boolean; kept?: Shelf }> {
+export async function shelveBook(fields: BookFields, shelf: Extract<Shelf, "next_up" | "to_read">): Promise<{ book: Book; moved: boolean; kept?: Shelf; previous: Shelf | "new" | null }> {
   const books = await store.listBooks();
   const existing = findInLibrary(books, fields);
   if (existing) {
     if (existing.shelf === "read" || existing.shelf === "currently_reading") {
-      return { book: existing, moved: false, kept: existing.shelf };
+      return { book: existing, moved: false, kept: existing.shelf, previous: null };
     }
     if (existing.shelf !== shelf) {
       const patch: Partial<BookFields> = { shelf, position: shelf === "next_up" ? nextPosition(books) : null };
@@ -232,10 +240,10 @@ export async function shelveBook(fields: BookFields, shelf: Extract<Shelf, "next
         if (existing[k] == null && fields[k] != null) (patch as Record<string, unknown>)[k] = fields[k];
       }
       await store.updateBook(existing.id, patch);
-      return { book: { ...existing, ...patch }, moved: true };
+      return { book: { ...existing, ...patch }, moved: true, previous: existing.shelf };
     }
-    return { book: existing, moved: false, kept: existing.shelf };
+    return { book: existing, moved: false, kept: existing.shelf, previous: null };
   }
   const book = await store.insertBook({ ...fields, shelf, position: shelf === "next_up" ? nextPosition(books) : null });
-  return { book, moved: true };
+  return { book, moved: true, previous: "new" };
 }

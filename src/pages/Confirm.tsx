@@ -1,18 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import {
-  type Book,
-  type BookCandidate,
-  type Capture,
-  type CaptureDecision,
-  type CaptureItem,
-  SHELF_LABEL,
-  candidateToBook,
-} from "../../supabase/functions/_shared/types.ts";
+import { type Book, type BookCandidate, type Capture, type CaptureDecision, type CaptureItem } from "../../supabase/functions/_shared/types.ts";
 import { BookSearch } from "../components/BookSearch.tsx";
-import { Cover, GoodreadsLink, bookMeta } from "../components/BookBits.tsx";
-import { localToday } from "../lib/dates.ts";
-import { findInLibrary, shelveBook, store } from "../lib/store.ts";
+import { Cover, bookMeta } from "../components/BookBits.tsx";
+import { CaptureCard, decideItem, sourceLabel, undoItem } from "../components/CaptureCard.tsx";
+import { store } from "../lib/store.ts";
 
 /**
  * The page the Shortcut opens after a capture: one card per book found, each
@@ -22,18 +14,17 @@ export function Confirm() {
   const { id } = useParams();
   const [capture, setCapture] = useState<Capture | null | undefined>(undefined);
   const [library, setLibrary] = useState<Book[]>([]);
-  const [selected, setSelected] = useState<number[]>([]); // chosen candidate per item
-  const [openAlts, setOpenAlts] = useState<number | null>(null);
+  const [otherWaiting, setOtherWaiting] = useState(0);
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const [c, books] = await Promise.all([store.getCapture(id!), store.listBooks()]);
+        const [c, books, pending] = await Promise.all([store.getCapture(id!), store.listBooks(), store.listPendingCaptures()]);
         setCapture(c);
         setLibrary(books);
-        setSelected(c ? c.items.map(() => 0) : []);
+        setOtherWaiting(pending.filter((p) => p.id !== id).reduce((n, p) => n + p.items.filter((i) => !i.decision).length, 0));
       } catch (e) {
         setError((e as Error).message);
         setCapture(null);
@@ -41,28 +32,13 @@ export function Confirm() {
     })();
   }, [id]);
 
-  async function saveItems(items: CaptureItem[]) {
-    await store.saveCaptureItems(capture!.id, items);
-    setCapture({ ...capture!, items });
-    setLibrary(await store.listBooks());
-  }
-
-  async function decide(index: number, decision: CaptureDecision, candidate: BookCandidate | undefined) {
+  async function run(index: number, fn: (c: Capture) => Promise<Capture>) {
     if (!capture) return;
     setBusy(index);
     setError(null);
     try {
-      let bookId: string | null = null;
-      if (decision !== "skipped" && candidate) {
-        const source = capture.source_type === "tiktok" ? "tiktok" : capture.source_type === "screenshot" ? "screenshot" : "text";
-        const r = await shelveBook(candidateToBook(candidate, decision, source, capture.source_url, localToday()), decision);
-        bookId = r.book.id;
-      }
-      const items = capture.items.map((it, i) =>
-        i === index ? { ...it, decision, book_id: bookId, candidates: candidate ? [candidate, ...it.candidates.filter((c) => c !== candidate)] : it.candidates } : it,
-      );
-      setSelected((s) => s.map((v, i) => (i === index ? 0 : v)));
-      await saveItems(items);
+      setCapture(await fn(capture));
+      setLibrary(await store.listBooks());
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -70,30 +46,17 @@ export function Confirm() {
     }
   }
 
-  async function undo(index: number) {
-    if (!capture) return;
-    setError(null);
-    const items = capture.items.map((it, i) => (i === index ? { ...it, decision: null, book_id: null } : it));
-    await saveItems(items).catch((e) => setError((e as Error).message));
-  }
+  const decide = (index: number, d: CaptureDecision, c: BookCandidate | undefined) => run(index, (cap) => decideItem(cap, index, d, c));
+  const undo = (index: number) => run(index, (cap) => undoItem(cap, index));
 
   async function addManual(c: BookCandidate, decision: "next_up" | "to_read") {
     if (!capture) return;
     const item: CaptureItem = { query: { title: c.title, author: c.author }, candidates: [c], decision: null, book_id: null };
-    const items = [...capture.items, item];
-    setCapture({ ...capture, items });
-    setSelected((s) => [...s, 0]);
-    await saveItems(items);
-    // decide() reads `capture` from state, so run it against the new list directly.
-    setBusy(items.length - 1);
-    try {
-      const r = await shelveBook(candidateToBook(c, decision, "manual", capture.source_url, localToday()), decision);
-      await saveItems(items.map((it, i) => (i === items.length - 1 ? { ...it, decision, book_id: r.book.id } : it)));
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
-    }
+    const withItem = { ...capture, items: [...capture.items, item] };
+    await run(withItem.items.length - 1, async () => {
+      await store.saveCaptureItems(withItem.id, withItem.items);
+      return decideItem(withItem, withItem.items.length - 1, decision, c);
+    });
   }
 
   if (capture === undefined) return <p className="muted" style={{ marginTop: 24 }}>Loading…</p>;
@@ -108,7 +71,6 @@ export function Confirm() {
   }
 
   const remaining = capture.items.filter((i) => !i.decision).length;
-  const source = capture.source_type === "tiktok" ? "TikTok" : capture.source_type === "screenshot" ? "screenshot" : "shared text";
 
   return (
     <>
@@ -121,7 +83,7 @@ export function Confirm() {
               : `${capture.items.length} book${capture.items.length === 1 ? "" : "s"} found`}
         </h1>
         <p className="small">
-          From a {source}
+          From a {sourceLabel(capture)}
           {capture.source_url && (
             <>
               {" · "}
@@ -136,94 +98,17 @@ export function Confirm() {
       {error && <p className="error" role="alert">{error}</p>}
 
       <div className="stack">
-        {capture.items.map((item, i) => {
-          const cand = item.candidates[selected[i] ?? 0];
-          const shown = cand ?? { title: item.query.title, author: item.query.author, cover_url: null, published_year: null, pages: null };
-          const inLib = cand ? findInLibrary(library, cand) : undefined;
-
-          if (item.decision) {
-            const book = library.find((b) => b.id === item.book_id);
-            return (
-              <div key={i} className="card done-line">
-                <span className="small">
-                  <strong>{shown.title}</strong>{" "}
-                  {item.decision === "skipped" ? (
-                    <span className="muted">skipped</span>
-                  ) : (
-                    <span className="pill pill-good">✓ {SHELF_LABEL[book?.shelf ?? item.decision]}</span>
-                  )}
-                </span>
-                <button className="btn-ghost btn-sm" onClick={() => undo(i)}>Undo</button>
-              </div>
-            );
-          }
-
-          return (
-            <div key={i} className="card">
-              <div className="book book-lg">
-                <Cover url={shown.cover_url} title={shown.title} />
-                <div>
-                  <div className="book-title">{shown.title}</div>
-                  <div className="book-meta">{bookMeta(shown)}</div>
-                  {cand && popularityLine(cand) && <div className="book-meta">{popularityLine(cand)}</div>}
-                  {!cand && <p className="muted small" style={{ marginTop: 6 }}>No match on Open Library.</p>}
-                  {inLib && <p className="small" style={{ marginTop: 6 }}><span className="pill">Already on {SHELF_LABEL[inLib.shelf]}</span></p>}
-                  <div className="book-actions">
-                    <GoodreadsLink book={inLib ?? shown} label="Open in Goodreads" />
-                  </div>
-                </div>
-              </div>
-
-              {(() => {
-                // The other likely books, most popular first. Two show; the rest on request.
-                const others = item.candidates.map((c, k) => ({ c, k })).filter(({ k }) => k !== (selected[i] ?? 0));
-                if (others.length === 0) return null;
-                const visible = openAlts === i ? others : others.slice(0, 2);
-                return (
-                  <div className="alts">
-                    <div className="alts-label">Or did you mean</div>
-                    {visible.map(({ c, k }) => (
-                      <button
-                        key={k}
-                        className="alt"
-                        onClick={() => {
-                          setSelected((s) => s.map((v, j) => (j === i ? k : v)));
-                          setOpenAlts(null);
-                        }}
-                      >
-                        <Cover url={c.cover_url} title={c.title} />
-                        <span>
-                          <span className="book-title">{c.title}</span>
-                          <span className="book-meta" style={{ display: "block" }}>
-                            {[c.author, c.published_year, readersLabel(c)].filter(Boolean).join(" · ")}
-                          </span>
-                        </span>
-                      </button>
-                    ))}
-                    {others.length > 2 && (
-                      <button className="btn-ghost btn-sm" style={{ alignSelf: "flex-start" }} aria-expanded={openAlts === i} onClick={() => setOpenAlts(openAlts === i ? null : i)}>
-                        {openAlts === i ? "Fewer matches" : `${others.length - 2} more`}
-                      </button>
-                    )}
-                  </div>
-                );
-              })()}
-
-              <div className="choice-row">
-                <button className="btn-primary" disabled={!cand || busy === i} onClick={() => decide(i, "next_up", cand)}>Next Up</button>
-                <button className="btn-soft" disabled={!cand || busy === i} onClick={() => decide(i, "to_read", cand)}>To-Read</button>
-                <button disabled={busy === i} onClick={() => decide(i, "skipped", undefined)}>Skip</button>
-              </div>
-            </div>
-          );
-        })}
+        {capture.items.map((item, i) => (
+          <CaptureCard key={i} item={item} library={library} busy={busy === i} onDecide={(d, c) => decide(i, d, c)} onUndo={() => undo(i)} />
+        ))}
       </div>
 
       <ManualAdd onAdd={addManual} defaultOpen={capture.items.length === 0} />
 
-      {remaining === 0 && capture.items.length > 0 && (
-        <p style={{ marginTop: 20 }}>
-          <Link to="/">Go to shelves →</Link>
+      {(remaining === 0 || otherWaiting > 0) && (
+        <p className="row" style={{ marginTop: 20, gap: 16 }}>
+          {otherWaiting > 0 && <Link to="/waiting">{otherWaiting} more waiting →</Link>}
+          {remaining === 0 && <Link to="/">Go to shelves →</Link>}
         </p>
       )}
     </>
@@ -261,18 +146,4 @@ function ManualAdd(props: { onAdd: (c: BookCandidate, d: "next_up" | "to_read") 
       )}
     </div>
   );
-}
-
-function compact(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n);
-}
-
-function readersLabel(c: BookCandidate): string | null {
-  return c.readers ? `${compact(c.readers)} readers` : null;
-}
-
-/** "★ 4.10 · 1.1k readers on Open Library" */
-function popularityLine(c: BookCandidate): string | null {
-  const parts = [c.avg_rating ? `★ ${c.avg_rating.toFixed(2)}` : null, c.readers ? `${compact(c.readers)} readers on Open Library` : null].filter(Boolean);
-  return parts.length ? parts.join(" · ") : null;
 }

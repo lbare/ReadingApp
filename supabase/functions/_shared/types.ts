@@ -63,6 +63,8 @@ export interface CaptureItem {
   candidates: BookCandidate[];
   decision: CaptureDecision | null;
   book_id: string | null;
+  /** How to reverse the decision: "new" = the book was added by it; a shelf = it was moved from there. */
+  undo_to?: Shelf | "new" | null;
 }
 
 export interface Capture {

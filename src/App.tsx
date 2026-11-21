@@ -7,6 +7,7 @@ import { Import } from "./pages/Import.tsx";
 import { Login } from "./pages/Login.tsx";
 import { Shelves } from "./pages/Shelves.tsx";
 import { Stats } from "./pages/Stats.tsx";
+import { Waiting } from "./pages/Waiting.tsx";
 
 export function App() {
   const [session, setSession] = useState<Session | null | undefined>(isLocalMode ? null : undefined);
@@ -40,6 +41,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<Shelves />} />
           <Route path="/confirm/:id" element={<Confirm />} />
+          <Route path="/waiting" element={<Waiting />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/import" element={<Import />} />
           <Route path="*" element={<p className="muted">Page not found.</p>} />

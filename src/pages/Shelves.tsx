@@ -21,9 +21,9 @@ export function Shelves() {
 
   const reload = useCallback(async () => {
     try {
-      const [b, c] = await Promise.all([store.listBooks(), store.listCaptures(10)]);
+      const [b, c] = await Promise.all([store.listBooks(), store.listPendingCaptures()]);
       setBooks(b);
-      setCaptures(c.filter((x) => x.status === "pending" && x.items.length > 0));
+      setCaptures(c);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -32,6 +32,12 @@ export function Shelves() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // Titles of every book still to sort, across all captures.
+  const waiting = useMemo(
+    () => captures.flatMap((c) => c.items.filter((i) => !i.decision).map((i) => i.candidates[0]?.title ?? i.query.title)),
+    [captures],
+  );
 
   const byShelf = useMemo(() => {
     const m: Record<Shelf, Book[]> = { next_up: [], to_read: [], currently_reading: [], read: [] };
@@ -107,21 +113,17 @@ export function Shelves() {
         <h1>Shelves</h1>
       </div>
 
-      {captures.length > 0 && (
-        <div className="card stack" style={{ marginBottom: 16 }}>
-          <h2>Waiting for you</h2>
-          {captures.map((c) => {
-            const left = c.items.filter((i) => !i.decision).length;
-            return (
-            <Link key={c.id} to={`/confirm/${c.id}`} className="row" style={{ justifyContent: "space-between", textDecoration: "none" }}>
-              <span>
-                {left} book{left === 1 ? "" : "s"} from a {c.source_type === "tiktok" ? "TikTok" : c.source_type}
-              </span>
-              <span className="muted">{formatDate(c.created_at)} →</span>
-            </Link>
-            );
-          })}
-        </div>
+      {waiting.length > 0 && (
+        <Link to="/waiting" className="card waiting-link" style={{ marginBottom: 16 }}>
+          <span>
+            <h2>Waiting for you</h2>
+            <span className="book-meta" style={{ display: "block" }}>
+              {waiting.slice(0, 3).join(", ")}
+              {waiting.length > 3 ? ` and ${waiting.length - 3} more` : ""}
+            </span>
+          </span>
+          <span className="pill">{waiting.length} →</span>
+        </Link>
       )}
 
       <div className="card stack">
@@ -215,7 +217,7 @@ function emptyText(tab: Shelf, filter: string) {
   if (filter) return "Nothing matches that filter.";
   switch (tab) {
     case "next_up":
-      return "Nothing queued. Share a TikTok to the Add Book shortcut, or search above.";
+      return "Nothing queued. Share a screenshot to the Add Book shortcut, or search above.";
     case "to_read":
       return "Your To-Read list is empty. Import from Goodreads to bring it over.";
     case "currently_reading":
