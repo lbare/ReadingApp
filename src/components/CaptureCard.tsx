@@ -92,12 +92,17 @@ export function CaptureCard(props: {
   header?: React.ReactNode;
   onDecide: (decision: CaptureDecision, candidate: BookCandidate | undefined) => void;
   onUndo: () => void;
+  /**
+   * Always show the full card (the list shows already-have-it books in its
+   * own compact grid). Starts on the first match not already in the library.
+   */
+  full?: boolean;
 }) {
   const { item, library, busy } = props;
   const match = libraryMatch(item, library);
-  const [selected, setSelected] = useState(0);
+  const [selected, setSelected] = useState(() => (props.full ? Math.max(0, item.candidates.findIndex((x) => !findInLibrary(library, x))) : 0));
   const [showAlts, setShowAlts] = useState(false);
-  const [notIt, setNotIt] = useState(false); // "Not this one?" on an already-have-it card
+  const [notIt, setNotIt] = useState(!!props.full); // "Not this one?" on an already-have-it card
   const cand = item.candidates[selected] ?? item.candidates[0];
   const shown = cand ?? { title: item.query.title, author: item.query.author, cover_url: null, published_year: null, pages: null };
   const inLib = cand ? findInLibrary(library, cand) : undefined;
@@ -157,7 +162,7 @@ export function CaptureCard(props: {
   const decide = (d: CaptureDecision, c: BookCandidate | undefined) => {
     if (c) setSelected(0);
     setShowAlts(false);
-    setNotIt(false);
+    setNotIt(!!props.full);
     props.onDecide(d, c);
   };
 
