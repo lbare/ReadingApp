@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { type Book, type BookCandidate, type Capture, type ReadRow, type Shelf, SHELF_LABEL, candidateToBook } from "../../supabase/functions/_shared/types.ts";
+import { bookKey } from "../../supabase/functions/_shared/openlibrary.ts";
 import { BookSearch } from "../components/BookSearch.tsx";
 import { Cover, GoodreadsLink, Stars, bookMeta } from "../components/BookBits.tsx";
 import { ReadDates } from "../components/ReadDates.tsx";
@@ -39,10 +40,12 @@ export function Shelves() {
   }, [reload]);
 
   // Titles of every book still to sort, across all captures.
-  const waiting = useMemo(
-    () => captures.flatMap((c) => c.items.filter((i) => !i.decision).map((i) => i.candidates[0]?.title ?? i.query.title)),
-    [captures],
-  );
+  const waiting = useMemo(() => {
+    const byKey = new Map<string, string>(); // each book once, even if shared twice
+    for (const c of captures)
+      for (const i of c.items) if (!i.decision) byKey.set(bookKey(i.candidates[0] ?? i.query), i.candidates[0]?.title ?? i.query.title);
+    return [...byKey.values()];
+  }, [captures]);
 
   const byShelf = useMemo(() => {
     const m: Record<Shelf, Book[]> = { next_up: [], to_read: [], currently_reading: [], read: [] };

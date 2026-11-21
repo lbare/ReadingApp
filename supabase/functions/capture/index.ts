@@ -16,7 +16,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@1.8.0";
 import { createClient } from "npm:@supabase/supabase-js@2.119.0";
 import { corsHeaders, json, safeEqual } from "../_shared/http.ts";
-import { dedupe, findCandidates, rank } from "../_shared/openlibrary.ts";
+import { bookKey, dedupe, findCandidates, rank } from "../_shared/openlibrary.ts";
 import { fetchTikTokInfo, firstUrl, isTikTokUrl } from "../_shared/tiktok.ts";
 import type { CaptureItem } from "../_shared/types.ts";
 
@@ -221,7 +221,30 @@ Deno.serve(async (req) => {
       const raw = await findCandidates({ title: text, author: null }, { limit: 5 }).catch(() => []);
       items[0].candidates = rank(dedupe([...items[0].candidates, ...raw]), text).slice(0, 5);
     }
-    if (items.length === 0) error = "No books found. Search for it by name below.";
+    // Each book once: drop repeats within this share and books still waiting
+    // from an earlier one (they'd just be duplicate cards).
+    const keyOf = (it: CaptureItem) => bookKey(it.candidates[0] ?? it.query);
+    const { data: pending } = await supabase.from("captures").select("items").eq("status", "pending").limit(200);
+    const waiting = new Set(
+      (pending ?? []).flatMap((c: { items: CaptureItem[] }) => c.items.filter((it) => !it.decision).map(keyOf)),
+    );
+    const seen = new Set<string>();
+    const alreadyWaiting: string[] = [];
+    items = items.filter((it) => {
+      const k = keyOf(it);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      if (waiting.has(k)) {
+        alreadyWaiting.push(it.candidates[0]?.title ?? it.query.title);
+        return false;
+      }
+      return true;
+    });
+    if (alreadyWaiting.length) {
+      error = `Already waiting for you: ${alreadyWaiting.join(", ")}.`;
+    } else if (items.length === 0) {
+      error = "No books found. Search for it by name below.";
+    }
   } catch (e) {
     console.error(e);
     if (e instanceof Anthropic.APIError) {

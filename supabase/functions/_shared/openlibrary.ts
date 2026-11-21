@@ -51,8 +51,12 @@ export function docToCandidate(doc: OpenLibraryDoc): BookCandidate | null {
 const popularity = (c: BookCandidate) => c.readers ?? c.ratings_count ?? 0;
 
 /** Same book, different Open Library work (duplicate entries, other editions). */
-const sameBook = (a: BookCandidate, b: BookCandidate) =>
-  normalizeTitle(a.title) === normalizeTitle(b.title) && normAuthor(a.author) === normAuthor(b.author);
+const sameBook = (a: BookCandidate, b: BookCandidate) => bookKey(a) === bookKey(b);
+
+/** Identity of a book for de-duplication: normalized title + author. */
+export function bookKey(b: { title: string; author: string | null }): string {
+  return `${normalizeTitle(b.title)}|${normAuthor(b.author)}`;
+}
 
 const normAuthor = (a: string | null) => (a ?? "").toLowerCase().replace(/[^\p{L}]/gu, "");
 

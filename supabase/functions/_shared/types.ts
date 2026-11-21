@@ -56,7 +56,8 @@ export interface BookCandidate {
   published_year: number | null;
 }
 
-export type CaptureDecision = "next_up" | "to_read" | "skipped";
+/** "existing": the book was already in the library; nothing was changed. */
+export type CaptureDecision = "next_up" | "to_read" | "skipped" | "existing";
 
 export interface CaptureItem {
   query: { title: string; author: string | null };

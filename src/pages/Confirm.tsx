@@ -1,66 +1,68 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { type Book, type BookCandidate, type Capture, type CaptureDecision, type CaptureItem } from "../../supabase/functions/_shared/types.ts";
+import { type Book, type BookCandidate, type Capture, type CaptureItem } from "../../supabase/functions/_shared/types.ts";
 import { BookSearch } from "../components/BookSearch.tsx";
 import { Cover, bookMeta } from "../components/BookBits.tsx";
-import { CaptureCard, decideItem, sourceLabel, undoItem } from "../components/CaptureCard.tsx";
+import { decideItem, sourceLabel } from "../components/CaptureCard.tsx";
+import { CaptureList, type Slot, groupSlots, remainingCount } from "../components/CaptureList.tsx";
 import { store } from "../lib/store.ts";
 
 /**
- * The page the Shortcut opens after a capture: one card per book found, each
- * with Next Up / To-Read / Skip and a link to Goodreads.
+ * The page the Shortcut opens after a capture: one card per book found (each
+ * book once), with Next Up / To-Read / Skip, Skip all, and a link to Goodreads.
  */
 export function Confirm() {
   const { id } = useParams();
-  const [capture, setCapture] = useState<Capture | null | undefined>(undefined);
+  const [captures, setCaptures] = useState<Map<string, Capture> | null | undefined>(undefined);
+  const [groups, setGroups] = useState<Slot[][]>([]);
   const [library, setLibrary] = useState<Book[]>([]);
   const [otherWaiting, setOtherWaiting] = useState(0);
-  const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const regroup = (map: Map<string, Capture>) => {
+    const c = map.get(id!)!;
+    setGroups(groupSlots(map, c.items.map((_, index) => ({ captureId: c.id, index }))));
+  };
 
   useEffect(() => {
     (async () => {
       try {
         const [c, books, pending] = await Promise.all([store.getCapture(id!), store.listBooks(), store.listPendingCaptures()]);
-        setCapture(c);
         setLibrary(books);
         setOtherWaiting(pending.filter((p) => p.id !== id).reduce((n, p) => n + p.items.filter((i) => !i.decision).length, 0));
+        if (!c) return setCaptures(null);
+        const map = new Map([[c.id, c]]);
+        setCaptures(map);
+        regroup(map);
       } catch (e) {
         setError((e as Error).message);
-        setCapture(null);
+        setCaptures(null);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  async function run(index: number, fn: (c: Capture) => Promise<Capture>) {
+  async function addManual(c: BookCandidate, decision: "next_up" | "to_read") {
+    const capture = captures?.get(id!);
     if (!capture) return;
-    setBusy(index);
     setError(null);
     try {
-      setCapture(await fn(capture));
+      const item: CaptureItem = { query: { title: c.title, author: c.author }, candidates: [c], decision: null, book_id: null };
+      const withItem = { ...capture, items: [...capture.items, item] };
+      await store.saveCaptureItems(withItem.id, withItem.items);
+      const done = await decideItem(withItem, withItem.items.length - 1, decision, c);
+      const map = new Map([[done.id, done]]);
+      setCaptures(map);
+      regroup(map);
       setLibrary(await store.listBooks());
     } catch (e) {
       setError((e as Error).message);
-    } finally {
-      setBusy(null);
     }
   }
 
-  const decide = (index: number, d: CaptureDecision, c: BookCandidate | undefined) => run(index, (cap) => decideItem(cap, index, d, c));
-  const undo = (index: number) => run(index, (cap) => undoItem(cap, index));
-
-  async function addManual(c: BookCandidate, decision: "next_up" | "to_read") {
-    if (!capture) return;
-    const item: CaptureItem = { query: { title: c.title, author: c.author }, candidates: [c], decision: null, book_id: null };
-    const withItem = { ...capture, items: [...capture.items, item] };
-    await run(withItem.items.length - 1, async () => {
-      await store.saveCaptureItems(withItem.id, withItem.items);
-      return decideItem(withItem, withItem.items.length - 1, decision, c);
-    });
-  }
-
-  if (capture === undefined) return <p className="muted" style={{ marginTop: 24 }}>Loading…</p>;
-  if (capture === null) {
+  if (captures === undefined) return <p className="muted" style={{ marginTop: 24 }}>Loading…</p>;
+  const capture = captures?.get(id!);
+  if (!captures || !capture) {
     return (
       <div className="page-head">
         <h1>Not found</h1>
@@ -70,17 +72,17 @@ export function Confirm() {
     );
   }
 
-  const remaining = capture.items.filter((i) => !i.decision).length;
+  const remaining = remainingCount(captures, groups);
 
   return (
     <>
       <div className="page-head">
         <h1>
-          {capture.items.length === 0
+          {groups.length === 0
             ? "No books found"
             : remaining === 0
               ? "All sorted"
-              : `${capture.items.length} book${capture.items.length === 1 ? "" : "s"} found`}
+              : `${groups.length} book${groups.length === 1 ? "" : "s"} found`}
         </h1>
         <p className="small">
           From a {sourceLabel(capture)}
@@ -97,13 +99,9 @@ export function Confirm() {
 
       {error && <p className="error" role="alert">{error}</p>}
 
-      <div className="stack">
-        {capture.items.map((item, i) => (
-          <CaptureCard key={i} item={item} library={library} busy={busy === i} onDecide={(d, c) => decide(i, d, c)} onUndo={() => undo(i)} />
-        ))}
-      </div>
+      <CaptureList captures={captures} setCaptures={setCaptures} groups={groups} library={library} setLibrary={setLibrary} />
 
-      <ManualAdd onAdd={addManual} defaultOpen={capture.items.length === 0} />
+      <ManualAdd onAdd={addManual} defaultOpen={groups.length === 0} />
 
       {(remaining === 0 || otherWaiting > 0) && (
         <p className="row" style={{ marginTop: 20, gap: 16 }}>
