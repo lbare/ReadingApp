@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { type Book, type BookCandidate, type Capture, type Shelf, SHELF_LABEL, candidateToBook } from "../../supabase/functions/_shared/types.ts";
+import { Link, useSearchParams } from "react-router-dom";
+import { type Book, type BookCandidate, type Capture, type ReadRow, type Shelf, SHELF_LABEL, candidateToBook } from "../../supabase/functions/_shared/types.ts";
 import { BookSearch } from "../components/BookSearch.tsx";
 import { Cover, GoodreadsLink, Stars, bookMeta } from "../components/BookBits.tsx";
-import { formatDate, localToday } from "../lib/dates.ts";
-import { shelveBook, store } from "../lib/store.ts";
+import { ReadDates } from "../components/ReadDates.tsx";
+import { localToday } from "../lib/dates.ts";
+import { addRead, shelveBook, store } from "../lib/store.ts";
 
 const TABS: Shelf[] = ["next_up", "to_read", "currently_reading", "read"];
 const PAGE = 50;
@@ -12,8 +13,11 @@ const PAGE = 50;
 export function Shelves() {
   const [books, setBooks] = useState<Book[] | null>(null);
   const [captures, setCaptures] = useState<Capture[]>([]);
-  const [tab, setTab] = useState<Shelf>(() => (sessionStorageGet("shelf") as Shelf) ?? "next_up");
-  const [filter, setFilter] = useState("");
+  // ?tab=read&q=Verity opens a shelf filtered (used by links from Stats).
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState<Shelf>(() => (params.get("tab") as Shelf) ?? (sessionStorageGet("shelf") as Shelf) ?? "next_up");
+  const [reads, setReads] = useState<ReadRow[]>([]);
+  const [filter, setFilter] = useState(() => params.get("q") ?? "");
   const [limit, setLimit] = useState(PAGE);
   const [picked, setPicked] = useState<BookCandidate | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -21,8 +25,9 @@ export function Shelves() {
 
   const reload = useCallback(async () => {
     try {
-      const [b, c] = await Promise.all([store.listBooks(), store.listPendingCaptures()]);
+      const [b, c, r] = await Promise.all([store.listBooks(), store.listPendingCaptures(), store.listReads()]);
       setBooks(b);
+      setReads(r);
       setCaptures(c);
     } catch (e) {
       setError((e as Error).message);
@@ -98,8 +103,13 @@ export function Shelves() {
       }),
     );
 
-  const finish = (book: Book) =>
-    act(() => store.updateBook(book.id, { shelf: "read", position: null, date_read: localToday(), read_count: book.read_count + 1 }));
+  const finish = (book: Book) => act(() => addRead(book, localToday()));
+
+  const readsByBook = useMemo(() => {
+    const m = new Map<string, ReadRow[]>();
+    for (const r of reads) m.set(r.book_id, [...(m.get(r.book_id) ?? []), r]);
+    return m;
+  }, [reads]);
 
   const start = (book: Book) => act(() => store.updateBook(book.id, { shelf: "currently_reading", position: null, date_started: localToday() }));
 
@@ -175,10 +185,10 @@ export function Shelves() {
                   <div className="book-title">{b.title}</div>
                   <div className="book-meta">{bookMeta(b)}</div>
                   {tab === "read" && (
-                    <div className="row small" style={{ marginTop: 4 }}>
-                      <span className="muted">{b.date_read ? formatDate(b.date_read) : "No finish date"}</span>
+                    <>
                       <Stars value={b.my_rating} />
-                    </div>
+                      <ReadDates book={b} reads={readsByBook.get(b.id) ?? []} onChange={reload} />
+                    </>
                   )}
                   <div className="book-actions">
                     {tab === "next_up" && (

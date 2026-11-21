@@ -10,6 +10,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.119.0";
 import { goodreadsRssUrl, mapGoodreadsShelf, parseGoodreadsRss, RSS_SHELVES } from "../_shared/goodreads.ts";
 import { corsHeaders, json, safeEqual } from "../_shared/http.ts";
 import { planMerge } from "../_shared/merge.ts";
+import { missingReads } from "../_shared/reads.ts";
 import type { Book, BookFields, Settings } from "../_shared/types.ts";
 
 const MAX_PAGES_PER_SHELF = 30;
@@ -75,6 +76,17 @@ Deno.serve(async (req) => {
       const results = await Promise.all(chunk.map((u) => supabase.from("books").update(u.patch).eq("id", u.id)));
       const failed = results.find((r) => r.error);
       if (failed?.error) throw new Error(failed.error.message);
+    }
+    // Record a read for each newly finished book (or new finish date).
+    const [{ data: allBooks, error: abErr }, { data: reads, error: rErr }] = await Promise.all([
+      supabase.from("books").select("id, shelf, date_read, source"),
+      supabase.from("reads").select("book_id, date_finished"),
+    ]);
+    if (abErr || rErr) throw new Error((abErr ?? rErr)!.message);
+    const newReads = missingReads(allBooks as Book[], reads ?? []);
+    if (newReads.length) {
+      const { error } = await supabase.from("reads").upsert(newReads, { onConflict: "book_id,date_finished", ignoreDuplicates: true });
+      if (error) throw new Error(error.message);
     }
     result = { fetched: incoming.length, inserted: plan.inserts.length, updated: plan.updates.length, unchanged: plan.unchanged };
   } catch (e) {

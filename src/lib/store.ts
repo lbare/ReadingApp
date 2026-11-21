@@ -5,7 +5,8 @@
 
 import type { MergePlan } from "../../supabase/functions/_shared/merge.ts";
 import { normalizeTitle } from "../../supabase/functions/_shared/openlibrary.ts";
-import type { Book, BookFields, Capture, CaptureItem, Settings, Shelf } from "../../supabase/functions/_shared/types.ts";
+import { missingReads } from "../../supabase/functions/_shared/reads.ts";
+import type { Book, BookFields, Capture, CaptureItem, ReadRow, Settings, Shelf } from "../../supabase/functions/_shared/types.ts";
 import { supabase } from "./supabase.ts";
 
 export interface SyncResult {
@@ -29,6 +30,9 @@ export interface Store {
   getSettings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<void>;
   syncGoodreads(): Promise<SyncResult>;
+  listReads(): Promise<ReadRow[]>;
+  insertReads(rows: Pick<ReadRow, "book_id" | "date_finished" | "source">[]): Promise<void>;
+  deleteRead(id: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +93,22 @@ function supabaseStore(): Store {
     async saveSettings(patch) {
       check(await db.from("settings").update(patch).eq("id", 1));
     },
+    async listReads() {
+      const all: ReadRow[] = [];
+      for (let from = 0; ; from += 1000) {
+        const rows = check(await db.from("reads").select("*").order("date_finished").range(from, from + 999)) as ReadRow[];
+        all.push(...rows);
+        if (rows.length < 1000) return all;
+      }
+    },
+    async insertReads(rows) {
+      if (rows.length === 0) return;
+      // Same book + finish date already recorded: leave it.
+      check(await db.from("reads").upsert(rows, { onConflict: "book_id,date_finished", ignoreDuplicates: true }));
+    },
+    async deleteRead(id) {
+      check(await db.from("reads").delete().eq("id", id));
+    },
     async syncGoodreads() {
       const { data, error } = await db.functions.invoke<SyncResult & { error?: string }>("goodreads-sync", { method: "POST" });
       if (error) {
@@ -107,6 +127,7 @@ function supabaseStore(): Store {
 
 interface LocalData {
   books: Book[];
+  reads?: ReadRow[];
   captures: Capture[];
   settings: Settings;
 }
@@ -159,6 +180,7 @@ function localStore(): Store {
     async deleteBook(id) {
       const d = load();
       d.books = d.books.filter((b) => b.id !== id);
+      d.reads = (d.reads ?? []).filter((r) => r.book_id !== id);
       save(d);
     },
     async applyMerge(plan) {
@@ -190,6 +212,25 @@ function localStore(): Store {
     async saveSettings(patch) {
       const d = load();
       d.settings = { ...DEFAULT_SETTINGS, ...d.settings, ...patch };
+      save(d);
+    },
+    async listReads() {
+      return load().reads ?? [];
+    },
+    async insertReads(rows) {
+      const d = load();
+      const reads = d.reads ?? [];
+      const have = new Set(reads.map((r) => `${r.book_id}|${r.date_finished}`));
+      for (const r of rows) {
+        if (have.has(`${r.book_id}|${r.date_finished}`)) continue;
+        reads.push({ ...r, id: crypto.randomUUID(), date_started: null, created_at: now() });
+      }
+      d.reads = reads;
+      save(d);
+    },
+    async deleteRead(id) {
+      const d = load();
+      d.reads = (d.reads ?? []).filter((r) => r.id !== id);
       save(d);
     },
     async syncGoodreads() {
@@ -246,4 +287,35 @@ export async function shelveBook(fields: BookFields, shelf: Extract<Shelf, "next
   }
   const book = await store.insertBook({ ...fields, shelf, position: shelf === "next_up" ? nextPosition(books) : null });
   return { book, moved: true, previous: "new" };
+}
+
+// ---------------------------------------------------------------------------
+// Reads (one row per finished read-through)
+
+/** Record a read for every finished book whose finish date has none yet (after imports, syncs, Finished). */
+export async function syncReads(): Promise<number> {
+  const [books, reads] = await Promise.all([store.listBooks(), store.listReads()]);
+  const missing = missingReads(books, reads);
+  await store.insertReads(missing);
+  return missing.length;
+}
+
+/** Add a finished read on `date` and keep the book's latest finish date and read count in step. */
+export async function addRead(book: Book, date: string): Promise<void> {
+  await store.insertReads([{ book_id: book.id, date_finished: date, source: "app" }]);
+  const count = (await store.listReads()).filter((r) => r.book_id === book.id).length;
+  await store.updateBook(book.id, {
+    shelf: "read",
+    position: null,
+    date_read: !book.date_read || date > book.date_read ? date : book.date_read,
+    read_count: Math.max(book.read_count, count),
+  });
+}
+
+/** Remove one read and recompute the book's latest finish date and read count. */
+export async function removeRead(book: Book, read: ReadRow): Promise<void> {
+  await store.deleteRead(read.id);
+  const left = (await store.listReads()).filter((r) => r.book_id === book.id && r.date_finished);
+  const latest = left.map((r) => r.date_finished!).sort().pop() ?? null;
+  await store.updateBook(book.id, { date_read: latest, read_count: left.length });
 }

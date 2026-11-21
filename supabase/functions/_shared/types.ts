@@ -78,6 +78,16 @@ export interface Capture {
   error: string | null;
 }
 
+/** One read-through of a book. */
+export interface ReadRow {
+  id: string;
+  book_id: string;
+  date_started: string | null;
+  date_finished: string | null;
+  source: "app" | "goodreads_csv" | "goodreads_rss";
+  created_at: string;
+}
+
 export interface Settings {
   yearly_goal: number;
   goodreads_user_id: string | null;

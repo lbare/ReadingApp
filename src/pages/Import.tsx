@@ -4,7 +4,7 @@ import { type MergePlan, planMerge } from "../../supabase/functions/_shared/merg
 import type { Settings } from "../../supabase/functions/_shared/types.ts";
 import { formatDate } from "../lib/dates.ts";
 import { isLocalMode } from "../lib/supabase.ts";
-import { store } from "../lib/store.ts";
+import { store, syncReads } from "../lib/store.ts";
 
 export function Import() {
   return (
@@ -49,6 +49,7 @@ function CsvImport() {
     setError(null);
     try {
       await store.applyMerge(plan);
+      await syncReads();
       setStatus(`Imported: ${plan.inserts.length} added, ${plan.updates.length} updated.`);
       setPlan(null);
     } catch (err) {
