@@ -242,11 +242,7 @@ export function Stats() {
           <div>
             <h3>Most-read authors</h3>
             <BarList
-              rows={breakdown.authors.map((a) => ({
-                label: a.author,
-                value: a.reads,
-                note: a.reads > a.books ? `(${plural(a.books, "book")})` : undefined,
-              }))}
+              rows={breakdown.authors.map((a) => ({ label: a.author, value: a.reads }))}
             />
           </div>
         </div>

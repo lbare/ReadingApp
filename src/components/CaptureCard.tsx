@@ -57,8 +57,8 @@ export function sourceLabel(c: Pick<Capture, "source_type">): string {
 }
 
 /**
- * One book found in a capture: the best match, up to two "Or did you mean"
- * alternatives, and Next Up / To-Read / Skip. Once decided it collapses to a
+ * One book found in a capture: the best match, with the other likely matches
+ * folded behind "Not this one?", and Next Up / To-Read / Skip. Once decided it collapses to a
  * one-line summary with Undo.
  */
 export function CaptureCard(props: {
@@ -72,7 +72,7 @@ export function CaptureCard(props: {
 }) {
   const { item, library, busy } = props;
   const [selected, setSelected] = useState(0);
-  const [showAll, setShowAll] = useState(false);
+  const [showAlts, setShowAlts] = useState(false);
   const cand = item.candidates[selected] ?? item.candidates[0];
   const shown = cand ?? { title: item.query.title, author: item.query.author, cover_url: null, published_year: null, pages: null };
   const inLib = cand ? findInLibrary(library, cand) : undefined;
@@ -97,12 +97,11 @@ export function CaptureCard(props: {
   // The chosen match moves to the front of the list once decided.
   const decide = (d: CaptureDecision, c: BookCandidate | undefined) => {
     if (c) setSelected(0);
-    setShowAll(false);
+    setShowAlts(false);
     props.onDecide(d, c);
   };
 
   const others = item.candidates.map((c, k) => ({ c, k })).filter(({ c }) => c !== cand);
-  const visible = showAll ? others : others.slice(0, 2);
 
   return (
     <div className="card">
@@ -117,20 +116,25 @@ export function CaptureCard(props: {
           {inLib && <p className="small" style={{ marginTop: 6 }}><span className="pill">Already on {SHELF_LABEL[inLib.shelf]}</span></p>}
           <div className="book-actions">
             <GoodreadsLink book={inLib ?? shown} label="Open in Goodreads" />
+            {others.length > 0 && (
+              <button className="btn-ghost btn-sm" aria-expanded={showAlts} onClick={() => setShowAlts(!showAlts)}>
+                Not this one? <span className={showAlts ? "chev chev-open" : "chev"} aria-hidden="true">▾</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {others.length > 0 && (
+      {showAlts && others.length > 0 && (
         <div className="alts">
-          <div className="alts-label">Or did you mean</div>
-          {visible.map(({ c, k }) => (
+          <div className="alts-label">Other matches</div>
+          {others.map(({ c, k }) => (
             <button
               key={k}
               className="alt"
               onClick={() => {
                 setSelected(k);
-                setShowAll(false);
+                setShowAlts(false);
               }}
             >
               <Cover url={c.cover_url} title={c.title} />
@@ -142,11 +146,6 @@ export function CaptureCard(props: {
               </span>
             </button>
           ))}
-          {others.length > 2 && (
-            <button className="btn-ghost btn-sm" style={{ alignSelf: "flex-start" }} aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>
-              {showAll ? "Fewer matches" : `${others.length - 2} more`}
-            </button>
-          )}
         </div>
       )}
 
