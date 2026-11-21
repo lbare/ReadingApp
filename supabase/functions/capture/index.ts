@@ -16,7 +16,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@1.8.0";
 import { createClient } from "npm:@supabase/supabase-js@2.119.0";
 import { corsHeaders, json, safeEqual } from "../_shared/http.ts";
-import { searchOpenLibrary } from "../_shared/openlibrary.ts";
+import { findCandidates } from "../_shared/openlibrary.ts";
 import { fetchTikTokInfo, firstUrl, isTikTokUrl } from "../_shared/tiktok.ts";
 import type { CaptureItem } from "../_shared/types.ts";
 
@@ -188,7 +188,7 @@ Deno.serve(async (req) => {
     items = await Promise.all(
       found.map(async (q): Promise<CaptureItem> => ({
         query: q,
-        candidates: await searchOpenLibrary(q, { limit: 5 }).catch(() => []),
+        candidates: await findCandidates(q, { limit: 5 }).catch(() => []),
         decision: null,
         book_id: null,
       })),

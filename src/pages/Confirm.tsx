@@ -165,46 +165,49 @@ export function Confirm() {
                 <div>
                   <div className="book-title">{shown.title}</div>
                   <div className="book-meta">{bookMeta(shown)}</div>
-                  {cand?.avg_rating && (
-                    <div className="book-meta">
-                      ★ {cand.avg_rating.toFixed(2)}
-                      {cand.ratings_count ? ` · ${cand.ratings_count.toLocaleString()} ratings on Open Library` : ""}
-                    </div>
-                  )}
+                  {cand && popularityLine(cand) && <div className="book-meta">{popularityLine(cand)}</div>}
                   {!cand && <p className="muted small" style={{ marginTop: 6 }}>No match on Open Library.</p>}
                   {inLib && <p className="small" style={{ marginTop: 6 }}><span className="pill">Already on {SHELF_LABEL[inLib.shelf]}</span></p>}
                   <div className="book-actions">
                     <GoodreadsLink book={inLib ?? shown} label="Open in Goodreads" />
-                    {item.candidates.length > 1 && (
-                      <button className="btn-ghost btn-sm" aria-expanded={openAlts === i} onClick={() => setOpenAlts(openAlts === i ? null : i)}>
-                        {openAlts === i ? "Hide matches" : "Not this one?"}
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>
 
-              {openAlts === i && (
-                <div className="alts">
-                  {item.candidates.map((c, k) => (
-                    <button
-                      key={k}
-                      className="alt"
-                      aria-pressed={k === (selected[i] ?? 0)}
-                      onClick={() => {
-                        setSelected((s) => s.map((v, j) => (j === i ? k : v)));
-                        setOpenAlts(null);
-                      }}
-                    >
-                      <Cover url={c.cover_url} title={c.title} />
-                      <span>
-                        <span className="book-title">{c.title}</span>
-                        <span className="book-meta" style={{ display: "block" }}>{bookMeta(c)}</span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
+              {(() => {
+                // The other likely books, most popular first. Two show; the rest on request.
+                const others = item.candidates.map((c, k) => ({ c, k })).filter(({ k }) => k !== (selected[i] ?? 0));
+                if (others.length === 0) return null;
+                const visible = openAlts === i ? others : others.slice(0, 2);
+                return (
+                  <div className="alts">
+                    <div className="alts-label">Or did you mean</div>
+                    {visible.map(({ c, k }) => (
+                      <button
+                        key={k}
+                        className="alt"
+                        onClick={() => {
+                          setSelected((s) => s.map((v, j) => (j === i ? k : v)));
+                          setOpenAlts(null);
+                        }}
+                      >
+                        <Cover url={c.cover_url} title={c.title} />
+                        <span>
+                          <span className="book-title">{c.title}</span>
+                          <span className="book-meta" style={{ display: "block" }}>
+                            {[c.author, c.published_year, readersLabel(c)].filter(Boolean).join(" · ")}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                    {others.length > 2 && (
+                      <button className="btn-ghost btn-sm" style={{ alignSelf: "flex-start" }} aria-expanded={openAlts === i} onClick={() => setOpenAlts(openAlts === i ? null : i)}>
+                        {openAlts === i ? "Fewer matches" : `${others.length - 2} more`}
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="choice-row">
                 <button className="btn-primary" disabled={!cand || busy === i} onClick={() => decide(i, "next_up", cand)}>Next Up</button>
@@ -258,4 +261,18 @@ function ManualAdd(props: { onAdd: (c: BookCandidate, d: "next_up" | "to_read") 
       )}
     </div>
   );
+}
+
+function compact(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n);
+}
+
+function readersLabel(c: BookCandidate): string | null {
+  return c.readers ? `${compact(c.readers)} readers` : null;
+}
+
+/** "★ 4.10 · 1.1k readers on Open Library" */
+function popularityLine(c: BookCandidate): string | null {
+  const parts = [c.avg_rating ? `★ ${c.avg_rating.toFixed(2)}` : null, c.readers ? `${compact(c.readers)} readers on Open Library` : null].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
 }

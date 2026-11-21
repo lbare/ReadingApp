@@ -51,6 +51,8 @@ export interface BookCandidate {
   pages: number | null;
   avg_rating: number | null;
   ratings_count: number | null;
+  /** Open Library readers who shelved it (popularity). Missing on captures made before it was added. */
+  readers?: number | null;
   published_year: number | null;
 }
 
