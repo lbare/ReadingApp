@@ -246,3 +246,62 @@ export function parseGoodreadsRss(xml: string, shelf: Shelf): BookFields[] {
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Saved "My Books" page (goodreads.com/review/list/<id>, saved as HTML).
+// Goodreads dropped RSS feeds and the export no longer has average ratings,
+// but the My Books table still shows them for every book on the page.
+
+export interface ListPageBook {
+  goodreads_id: string | null;
+  title: string;
+  author: string | null; // "First Last"
+  avg_rating: number | null;
+  ratings_count: number | null;
+  pages: number | null;
+  isbn13: string | null;
+  isbn10: string | null;
+}
+
+function htmlText(s: string): string {
+  return decodeXml(s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " "))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function listField(row: string, name: string): { html: string; text: string } | null {
+  const m = row.match(new RegExp(`class="field ${name}"[^>]*>\\s*<label>[\\s\\S]*?</label>\\s*<div class="value">([\\s\\S]*?)</div>\\s*</(?:div|td)>`));
+  return m ? { html: m[1], text: htmlText(m[1]) } : null;
+}
+
+/** "Hoover, Colleen" → "Colleen Hoover" (single names stay as they are). */
+function unflipName(name: string): string {
+  const parts = name.split(",").map((p) => p.trim());
+  return parts.length === 2 && parts[1] ? `${parts[1]} ${parts[0]}` : name;
+}
+
+export function parseGoodreadsListHtml(html: string): ListPageBook[] {
+  const starts: number[] = [];
+  // Rows are <div id="review_123" class="bookalike review"> (or <tr> in older layouts).
+  const re = /<(?:div|tr)[^>]*\bid="review_\d+"/g;
+  for (let m = re.exec(html); m; m = re.exec(html)) starts.push(m.index);
+  return starts.map((start, i) => {
+    const row = html.slice(start, starts[i + 1] ?? html.length);
+    const title = listField(row, "title");
+    const author = listField(row, "author");
+    const avg = parseFloat(listField(row, "avg_rating")?.text ?? "");
+    const count = parseInt((listField(row, "num_ratings")?.text ?? "").replace(/[^\d]/g, ""), 10);
+    const pages = parseInt(listField(row, "num_pages")?.text ?? "", 10);
+    const authorName = author?.text.replace(/\s*\*$/, "").trim() ?? "";
+    return {
+      goodreads_id: title?.html.match(/\/book\/show\/(\d+)/)?.[1] ?? null,
+      title: title?.text ?? "",
+      author: authorName ? unflipName(authorName) : null,
+      avg_rating: Number.isFinite(avg) && avg > 0 ? avg : null,
+      ratings_count: Number.isFinite(count) ? count : null,
+      pages: Number.isFinite(pages) && pages > 0 ? pages : null,
+      isbn13: cleanIsbn(listField(row, "isbn13")?.text),
+      isbn10: cleanIsbn(listField(row, "isbn")?.text),
+    };
+  }).filter((b) => b.title);
+}

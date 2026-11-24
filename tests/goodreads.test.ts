@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   goodreadsUrl,
+  parseGoodreadsListHtml,
   parseCsv,
   parseGoodreadsCsv,
   parseGoodreadsRss,
@@ -108,5 +109,30 @@ describe("ratings", () => {
   it("works without the Average Rating column and tidies spacing", () => {
     const { books } = parseGoodreadsCsv([header, row("3.5")].join("\n"));
     expect(books[0]).toMatchObject({ author: "Stephen King", avg_rating: null, pages: 300, date_read: "2026-11-08" });
+  });
+});
+
+describe("parseGoodreadsListHtml (saved My Books page)", () => {
+  const row = (id: string, title: string, author: string, avg: string, count: string, pages: string, isbn13 = "") => `
+<div id="review_${id}" class="bookalike review">
+  <div class="field checkbox" style="display: none"><label>checkbox</label><div class="value"><input type="checkbox"></div></div>
+  <div class="field title"><label>title</label><div class="value"> <a title="${title}" href="/book/show/${id}-slug"> ${title} </a></div></div>
+  <div class="field author"><label>author</label><div class="value"> <a href="/author/show/1.X">${author}</a> <span title="Goodreads Author!">*</span> </div></div>
+  <div class="field isbn13" style="display: none"><label>isbn13</label><div class="value"> ${isbn13} </div></div>
+  <div class="field num_pages"><label>num pages</label><div class="value"> <nobr> ${pages} <span class="greyText">pp</span> </nobr> </div></div>
+  <div class="field avg_rating"><label>avg rating</label><div class="value"> ${avg} </div></div>
+  <div class="field num_ratings" style="display: none"><label>num ratings</label><div class="value"> ${count} </div></div>
+</div>`;
+  const html = `<html><div id="review_list_error_message"></div>${row("59344312", "Verity", "Hoover, Colleen", "4.27", "4,364,928", "336")}${row("11", "Ender&#39;s Game", "Card, Orson Scott", "4.31", "1,500,000", "324", "9780812550702")}</html>`;
+
+  it("reads id, title, author, rating, count and pages from each row", () => {
+    expect(parseGoodreadsListHtml(html)).toEqual([
+      { goodreads_id: "59344312", title: "Verity", author: "Colleen Hoover", avg_rating: 4.27, ratings_count: 4364928, pages: 336, isbn13: null, isbn10: null },
+      { goodreads_id: "11", title: "Ender's Game", author: "Orson Scott Card", avg_rating: 4.31, ratings_count: 1500000, pages: 324, isbn13: "9780812550702", isbn10: null },
+    ]);
+  });
+
+  it("finds nothing in an unrelated page", () => {
+    expect(parseGoodreadsListHtml("<html><body>hi</body></html>")).toEqual([]);
   });
 });

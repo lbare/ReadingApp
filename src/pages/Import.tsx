@@ -1,9 +1,6 @@
 import { useEffect, useState } from "react";
-import { parseGoodreadsCsv, parseGoodreadsUserId } from "../../supabase/functions/_shared/goodreads.ts";
-import { type MergePlan, planMerge } from "../../supabase/functions/_shared/merge.ts";
-import type { Settings } from "../../supabase/functions/_shared/types.ts";
-import { formatDate } from "../lib/dates.ts";
-import { isLocalMode } from "../lib/supabase.ts";
+import { parseGoodreadsCsv, parseGoodreadsListHtml } from "../../supabase/functions/_shared/goodreads.ts";
+import { type MergePlan, planMerge, planRatingUpdates } from "../../supabase/functions/_shared/merge.ts";
 import { store, syncReads } from "../lib/store.ts";
 
 export function Import() {
@@ -11,11 +8,11 @@ export function Import() {
     <>
       <div className="page-head">
         <h1>Import</h1>
-        <p>Bring over your Goodreads history once, then keep shelves in sync.</p>
+        <p>Bring over your Goodreads history, and refresh ratings from Goodreads when you like.</p>
       </div>
       <div className="stack">
         <CsvImport />
-        <RssSync />
+        <GoodreadsRatings />
         <Goal />
       </div>
     </>
@@ -90,53 +87,33 @@ function CsvImport() {
   );
 }
 
-function RssSync() {
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [userInput, setUserInput] = useState("");
-  const [key, setKey] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
+function GoodreadsRatings() {
+  const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    store.getSettings().then((s) => {
-      setSettings(s);
-      setUserInput(s.goodreads_user_id ?? "");
-      setKey(s.goodreads_rss_key ?? "");
-    }).catch((e) => setError((e as Error).message));
-  }, []);
-
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setStatus(null);
-    const id = userInput.trim() ? parseGoodreadsUserId(userInput) : null;
-    // A pasted RSS link carries the key too: …/review/list_rss/123?key=abc&shelf=read
-    const keyFromLink = userInput.match(/[?&]key=([^&\s]+)/)?.[1] ?? null;
-    if (userInput.trim() && !id) {
-      setError("Couldn't find a user id. Paste your profile link, e.g. goodreads.com/user/show/12345678-name");
-      return;
-    }
-    try {
-      const patch = { goodreads_user_id: id, goodreads_rss_key: keyFromLink ?? (key.trim() || null) };
-      await store.saveSettings(patch);
-      setSettings((s) => (s ? { ...s, ...patch } : s));
-      setUserInput(id ?? "");
-      if (keyFromLink) setKey(keyFromLink);
-      setStatus("Saved.");
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
-
-  async function sync() {
+  async function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = [...(e.target.files ?? [])];
+    e.target.value = "";
+    if (files.length === 0) return;
     setBusy(true);
     setError(null);
-    setStatus(null);
+    setResult(null);
     try {
-      const r = await store.syncGoodreads();
-      setStatus(`Synced: ${r.fetched} in the feeds, ${r.inserted} added, ${r.updated} updated.`);
-      setSettings(await store.getSettings());
+      const rows = (await Promise.all(files.map((f) => f.text()))).flatMap(parseGoodreadsListHtml);
+      if (rows.length === 0) {
+        throw new Error("No books found in that file. Save the My Books page itself (goodreads.com → My Books) as a web page.");
+      }
+      const books = await store.listBooks();
+      const plan = planRatingUpdates(books, rows);
+      await store.applyMerge({ inserts: [], updates: plan.updates, unchanged: 0 });
+      const stillMissing = (await store.listBooks()).filter((b) => b.avg_rating == null).length;
+      setResult(
+        `Read ${rows.length} book${rows.length === 1 ? "" : "s"}: updated ratings for ${plan.updates.length}` +
+          (plan.matched > plan.updates.length ? `, ${plan.matched - plan.updates.length} already up to date` : "") +
+          (plan.unmatched.length ? `, ${plan.unmatched.length} not in your library` : "") +
+          `. ${stillMissing ? `${stillMissing} of your books still have no rating.` : "Every book has a rating."}`,
+      );
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -146,37 +123,19 @@ function RssSync() {
 
   return (
     <section className="card stack">
-      <h2>Goodreads shelf sync (RSS)</h2>
+      <h2>Goodreads ratings</h2>
       <p className="small muted">
-        Picks up what you shelve or finish on Goodreads after the import: read, currently reading and to-read. Runs when you press
-        Sync, and daily if you set up the cron job in the README.
+        Goodreads' export no longer includes average ratings, but your My Books page shows them. On a computer: open
+        goodreads.com → My Books, set <strong>per page</strong> (bottom of the list) to 100, then save the page (File → Save
+        Page As, "Web Page, HTML only"). Save each page if you have more than 100 books, and upload them all here. Do it again
+        whenever you want fresher numbers.
       </p>
-      <form className="stack" onSubmit={save}>
-        <label>
-          Goodreads RSS link (or profile link)
-          <input type="text" inputMode="url" value={userInput} onChange={(e) => setUserInput(e.target.value)} placeholder="https://www.goodreads.com/review/list_rss/12345678?key=…" />
-          <span className="muted" style={{ fontWeight: 400 }}>
-            On goodreads.com: My Books → RSS at the bottom of the page. Copy that link and paste it here.
-          </span>
-        </label>
-        <label>
-          RSS key <span className="muted" style={{ fontWeight: 400 }}>(filled in from the RSS link)</span>
-          <input type="text" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
-        </label>
-        <div className="row">
-          <button type="submit">Save</button>
-          <button type="button" className="btn-primary" onClick={sync} disabled={busy || isLocalMode || !settings?.goodreads_user_id}>
-            {busy ? "Syncing…" : "Sync now"}
-          </button>
-        </div>
-      </form>
-      {isLocalMode && <p className="muted small">Sync runs on Supabase, so it's off in local mode.</p>}
-      {settings?.goodreads_last_sync && (
-        <p className="muted small">
-          Last sync {formatDate(settings.goodreads_last_sync)}: {settings.goodreads_last_result}
-        </p>
-      )}
-      {status && <p className="small" role="status">{status}</p>}
+      <label>
+        Saved My Books page(s)
+        <input type="file" accept=".html,.htm,text/html" multiple onChange={onFiles} disabled={busy} />
+      </label>
+      {busy && <p className="muted small">Reading…</p>}
+      {result && <p className="small" role="status">{result}</p>}
       {error && <p className="error">{error}</p>}
     </section>
   );

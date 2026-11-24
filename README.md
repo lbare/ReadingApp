@@ -13,7 +13,7 @@ built from your whole Goodreads history. This is **Phase 1** of the plan in the
 | Web app on GitHub Pages | Live; redeploys on every push to `main` |
 | Database (Supabase) | Tables, access grants and row-level security applied |
 | `capture` function | Live. Tested with shared text and with screenshots (base64 JSON and file upload) |
-| `goodreads-sync` function | Live, not yet run against a real Goodreads profile |
+| `goodreads-sync` function | Deployed but unused: Goodreads no longer serves RSS feeds (Nov 2026) |
 | TikTok links | Not yet tested with a real TikTok |
 | Sign-in on iPhone, Goodreads import | Not yet tested on the live app (both work in local mode) |
 | "Add Book" Shortcut | Not built yet: see `shortcut/README.md` |
@@ -134,23 +134,16 @@ open the app.
 1. Open the site in Safari, sign in with the emailed link (open it on the same phone), then **Share → Add to Home Screen**.
 2. **Goodreads history, once:** on goodreads.com, My Books → *Import and export* → *Export Library*. Upload the CSV on
    the Import page.
-3. **Ongoing Goodreads sync:** on the Import page, paste your Goodreads profile link and press **Sync now**. If your
-   profile is private, also paste the `key=` value from any of your shelf RSS links.
+3. **Goodreads ratings:** the export no longer has average ratings, so on a computer open goodreads.com → My Books,
+   set *per page* to 100, save the page (File → Save Page As, HTML only), and upload it under **Goodreads ratings** on
+   the Import page. Repeat for each page of books, and again whenever you want fresher numbers.
 4. **Shortcut:** follow `shortcut/README.md`.
 
-### Optional: daily Goodreads sync
+### Goodreads RSS (retired)
 
-Run in the Supabase SQL editor (enable the `pg_cron` and `pg_net` extensions first). This puts your service role key in
-the job definition, so for anything beyond a personal project store it in Vault instead:
-
-```sql
-select cron.schedule('goodreads-sync', '0 9 * * *', $$
-  select net.http_post(
-    url := 'https://<your-project-ref>.supabase.co/functions/v1/goodreads-sync',
-    headers := jsonb_build_object('Authorization', 'Bearer <service-role-key>', 'Content-Type', 'application/json')
-  );
-$$);
-```
+`goodreads-sync` merges Goodreads' per-shelf RSS feeds. As of Nov 2026 Goodreads returns 404 for those feeds (even for
+public profiles) and My Books no longer links to them, so the Import page doesn't offer it. Ratings come from saved My
+Books pages instead (above); new reads come from re-importing the export.
 
 ## Phase 2
 

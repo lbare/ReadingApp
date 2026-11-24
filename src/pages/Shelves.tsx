@@ -31,6 +31,13 @@ const DEFAULT_SORT: Record<Shelf, SortBy> = {
   read: { key: "date", desc: true },
 };
 
+/** 4364928 → "4.4M", 12500 → "13k". */
+function compactCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 1000) return `${Math.round(n / 1000)}k`;
+  return String(n);
+}
+
 function sortLabel(key: SortKey, shelf: Shelf): string {
   if (key === "date") return shelf === "read" ? "Date read" : shelf === "currently_reading" ? "Date started" : "Date added";
   return { order: "Your order", title: "Title", pages: "Pages", rating: "Avg rating" }[key];
@@ -290,7 +297,12 @@ export function Shelves() {
                   <div className="book-title">{b.title}</div>
                   <div className="book-meta">
                     {bookMeta(b)}
-                    {b.avg_rating != null && <span className={sort.key === "rating" ? "avg-rating is-sorted" : "avg-rating"}> · ★ {b.avg_rating.toFixed(2)}</span>}
+                    {b.avg_rating != null && (
+                      <span className={sort.key === "rating" ? "avg-rating is-sorted" : "avg-rating"}>
+                        {" "}· ★ {b.avg_rating.toFixed(2)} avg
+                        {b.ratings_count ? <span className="muted" title={`${b.ratings_count.toLocaleString()} ratings`}> ({compactCount(b.ratings_count)})</span> : null}
+                      </span>
+                    )}
                   </div>
                   {tab === "read" && (
                     <>

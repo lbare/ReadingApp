@@ -98,3 +98,44 @@ export function planMerge(existing: Book[], incoming: BookFields[]): MergePlan {
   plan.unchanged = unchanged;
   return plan;
 }
+
+/**
+ * Ratings from saved Goodreads "My Books" pages: update the community average
+ * and ratings count for books already in the library (matched by Goodreads id,
+ * then ISBN, then title + author). Fills a missing Goodreads id or page count
+ * too. Never adds books.
+ */
+export function planRatingUpdates(
+  existing: Book[],
+  rows: { goodreads_id: string | null; title: string; author: string | null; avg_rating: number | null; ratings_count: number | null; pages: number | null; isbn13: string | null; isbn10: string | null }[],
+): { updates: { id: string; patch: Partial<BookFields> }[]; matched: number; unmatched: string[] } {
+  const byGr = new Map(existing.filter((b) => b.goodreads_id).map((b) => [b.goodreads_id!, b]));
+  const byIsbn = new Map<string, Book>();
+  for (const b of existing) {
+    if (b.isbn13) byIsbn.set(b.isbn13, b);
+    if (b.isbn10) byIsbn.set(b.isbn10, b);
+  }
+  const byKey = new Map(existing.map((b) => [key(b), b]));
+  const updates = new Map<string, Partial<BookFields>>();
+  const unmatched: string[] = [];
+  let matched = 0;
+  for (const r of rows) {
+    const b =
+      (r.goodreads_id && byGr.get(r.goodreads_id)) ||
+      (r.isbn13 && byIsbn.get(r.isbn13)) ||
+      (r.isbn10 && byIsbn.get(r.isbn10)) ||
+      byKey.get(key(r));
+    if (!b) {
+      unmatched.push(r.title);
+      continue;
+    }
+    matched++;
+    const patch: Partial<BookFields> = {};
+    if (r.avg_rating != null && r.avg_rating !== b.avg_rating) patch.avg_rating = r.avg_rating;
+    if (r.ratings_count != null && r.ratings_count !== b.ratings_count) patch.ratings_count = r.ratings_count;
+    if (!b.goodreads_id && r.goodreads_id) patch.goodreads_id = r.goodreads_id;
+    if (b.pages == null && r.pages != null) patch.pages = r.pages;
+    if (Object.keys(patch).length) updates.set(b.id, { ...(updates.get(b.id) ?? {}), ...patch });
+  }
+  return { updates: [...updates].map(([id, patch]) => ({ id, patch })), matched, unmatched };
+}
