@@ -11,6 +11,66 @@ import { addRead, shelveBook, store } from "../lib/store.ts";
 const TABS: Shelf[] = ["next_up", "to_read", "currently_reading", "read"];
 const PAGE = 50;
 
+type SortKey = "order" | "date" | "title" | "pages" | "rating";
+interface SortBy {
+  key: SortKey;
+  desc: boolean;
+}
+const SORT_KEYS: Record<Shelf, SortKey[]> = {
+  next_up: ["order", "date", "title", "pages", "rating"],
+  to_read: ["date", "title", "pages", "rating"],
+  currently_reading: ["date", "title", "pages", "rating"],
+  read: ["date", "title", "pages", "rating"],
+};
+// Newest, longest and highest-rated first; titles A–Z.
+const DEFAULT_DESC: Record<SortKey, boolean> = { order: false, date: true, title: false, pages: true, rating: true };
+const DEFAULT_SORT: Record<Shelf, SortBy> = {
+  next_up: { key: "order", desc: false },
+  to_read: { key: "date", desc: true },
+  currently_reading: { key: "date", desc: true },
+  read: { key: "date", desc: true },
+};
+
+function sortLabel(key: SortKey, shelf: Shelf): string {
+  if (key === "date") return shelf === "read" ? "Date read" : shelf === "currently_reading" ? "Date started" : "Date added";
+  return { order: "Your order", title: "Title", pages: "Pages", rating: "Avg rating" }[key];
+}
+
+function sortValue(b: Book, key: SortKey, shelf: Shelf): string | number | null {
+  switch (key) {
+    case "order":
+      return b.position;
+    case "date":
+      return shelf === "read" ? b.date_read : shelf === "currently_reading" ? (b.date_started ?? b.date_added) : b.date_added;
+    case "title":
+      return b.title.replace(/^(the|a|an)\s+/i, "").toLowerCase();
+    case "pages":
+      return b.pages;
+    case "rating":
+      return b.avg_rating;
+  }
+}
+
+/** Sort a shelf; books missing the value (no pages, no rating…) always go last. */
+function sortBooks(list: Book[], by: SortBy, shelf: Shelf): Book[] {
+  return [...list].sort((a, b) => {
+    const x = sortValue(a, by.key, shelf);
+    const y = sortValue(b, by.key, shelf);
+    if (x == null || y == null) return x == null && y == null ? 0 : x == null ? 1 : -1;
+    const c = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true });
+    return by.desc ? -c : c;
+  });
+}
+
+function loadSorts(): Record<Shelf, SortBy> {
+  try {
+    const saved = JSON.parse(localStorage.getItem("shelf-sort") ?? "{}") as Partial<Record<Shelf, SortBy>>;
+    return { ...DEFAULT_SORT, ...saved };
+  } catch {
+    return { ...DEFAULT_SORT };
+  }
+}
+
 export function Shelves() {
   const [books, setBooks] = useState<Book[] | null>(null);
   const [captures, setCaptures] = useState<Capture[]>([]);
@@ -20,6 +80,20 @@ export function Shelves() {
   const [reads, setReads] = useState<ReadRow[]>([]);
   const [filter, setFilter] = useState(() => params.get("q") ?? "");
   const [limit, setLimit] = useState(PAGE);
+  const [sorts, setSorts] = useState<Record<Shelf, SortBy>>(loadSorts);
+  const sort = sorts[tab];
+  const manualOrder = tab === "next_up" && sort.key === "order";
+
+  function setSort(next: SortBy) {
+    const all = { ...sorts, [tab]: next };
+    setSorts(all);
+    setLimit(PAGE);
+    try {
+      localStorage.setItem("shelf-sort", JSON.stringify(all));
+    } catch {
+      /* remembered for this visit only */
+    }
+  }
   const [picked, setPicked] = useState<BookCandidate | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,9 +132,9 @@ export function Shelves() {
 
   const shown = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    const list = byShelf[tab];
+    const list = sortBooks(byShelf[tab], sort, tab);
     return q ? list.filter((b) => `${b.title} ${b.author ?? ""}`.toLowerCase().includes(q)) : list;
-  }, [byShelf, tab, filter]);
+  }, [byShelf, tab, filter, sort]);
 
   function selectTab(s: Shelf) {
     setTab(s);
@@ -171,8 +245,36 @@ export function Shelves() {
         </div>
 
         {error && <p className="error">{error}</p>}
-        {byShelf[tab].length > 12 && (
-          <input type="search" placeholder={`Filter ${SHELF_LABEL[tab]}`} value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter this shelf" />
+        {byShelf[tab].length > 1 && (
+          <div className="shelf-tools">
+            {byShelf[tab].length > 12 && (
+              <input type="search" placeholder={`Filter ${SHELF_LABEL[tab]}`} value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter this shelf" />
+            )}
+            <div className="sort-control">
+              <select
+                value={sort.key}
+                aria-label="Sort by"
+                onChange={(e) => {
+                  const key = e.target.value as SortKey;
+                  setSort({ key, desc: DEFAULT_DESC[key] });
+                }}
+              >
+                {SORT_KEYS[tab].map((k) => (
+                  <option key={k} value={k}>{sortLabel(k, tab)}</option>
+                ))}
+              </select>
+              {sort.key !== "order" && (
+                <button
+                  className="icon-btn"
+                  aria-label={sort.desc ? "Descending, tap for ascending" : "Ascending, tap for descending"}
+                  title={sort.desc ? "Descending" : "Ascending"}
+                  onClick={() => setSort({ ...sort, desc: !sort.desc })}
+                >
+                  {sort.desc ? "↓" : "↑"}
+                </button>
+              )}
+            </div>
+          </div>
         )}
 
         {books === null ? (
@@ -186,7 +288,10 @@ export function Shelves() {
                 <Cover url={b.cover_url} title={b.title} />
                 <div>
                   <div className="book-title">{b.title}</div>
-                  <div className="book-meta">{bookMeta(b)}</div>
+                  <div className="book-meta">
+                    {bookMeta(b)}
+                    {b.avg_rating != null && <span className={sort.key === "rating" ? "avg-rating is-sorted" : "avg-rating"}> · ★ {b.avg_rating.toFixed(2)}</span>}
+                  </div>
                   {tab === "read" && (
                     <>
                       <Stars value={b.my_rating} />
@@ -196,8 +301,12 @@ export function Shelves() {
                   <div className="book-actions">
                     {tab === "next_up" && (
                       <>
-                        <button className="icon-btn" aria-label="Move up" disabled={i === 0 || !!filter} onClick={() => move(b, -1)}>↑</button>
-                        <button className="icon-btn" aria-label="Move down" disabled={i === shown.length - 1 || !!filter} onClick={() => move(b, 1)}>↓</button>
+                        {manualOrder && (
+                          <>
+                            <button className="icon-btn" aria-label="Move up" disabled={i === 0 || !!filter} onClick={() => move(b, -1)}>↑</button>
+                            <button className="icon-btn" aria-label="Move down" disabled={i === shown.length - 1 || !!filter} onClick={() => move(b, 1)}>↓</button>
+                          </>
+                        )}
                         <button className="btn-sm" onClick={() => start(b)}>Start reading</button>
                         <button className="btn-sm" onClick={() => toShelf(b, "to_read")}>To-Read</button>
                       </>

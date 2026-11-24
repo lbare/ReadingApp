@@ -10,7 +10,7 @@ import type { Book, BookFields, Shelf } from "./types.ts";
  *   - "read" and "currently_reading" from Goodreads always win (it's the reading log).
  *   - A Goodreads "to_read" never demotes a book already on Next Up / Reading / Read here.
  * Fields: imported values fill blanks; Goodreads-owned fields (rating, dates,
- * read count, goodreads id) overwrite.
+ * read count, goodreads id, community average rating) overwrite.
  */
 export interface MergePlan {
   inserts: BookFields[];
@@ -81,8 +81,11 @@ export function planMerge(existing: Book[], incoming: BookFields[]): MergePlan {
     if (inc.read_count > current.read_count) set("read_count", inc.read_count);
     if (inc.date_added && (!current.date_added || inc.date_added < current.date_added)) set("date_added", inc.date_added);
 
+    // Goodreads' community average changes over time: keep it current.
+    if (inc.avg_rating != null) set("avg_rating", inc.avg_rating);
+
     // Fill blanks
-    for (const k of ["author", "isbn13", "isbn10", "cover_url", "pages", "avg_rating", "published_year"] as const) {
+    for (const k of ["author", "isbn13", "isbn10", "cover_url", "pages", "published_year"] as const) {
       if (current[k] == null && inc[k] != null) set(k, inc[k] as never);
     }
 

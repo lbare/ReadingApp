@@ -316,3 +316,12 @@ tr.is-current td, tr.is-current th { background: var(--accent-soft); }
 .bar-track { height: 10px; border-radius: 0 4px 4px 0; background: var(--surface-2); overflow: hidden; }
 .bar-fill { height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; }
 .bar-value { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; white-space: nowrap; }
+
+/* Shelves: filter + sort */
+.shelf-tools { display: flex; gap: 8px; align-items: center; }
+.shelf-tools input[type="search"] { flex: 1; min-width: 0; }
+.sort-control { display: flex; gap: 4px; align-items: center; margin-left: auto; flex-shrink: 0; }
+.sort-control select { width: auto; min-height: 40px; font-size: 15px; padding: 0 8px; }
+.sort-control .icon-btn { min-height: 40px; width: 40px; font-size: 16px; }
+.avg-rating { white-space: nowrap; }
+.avg-rating.is-sorted { color: var(--text); font-weight: 600; }

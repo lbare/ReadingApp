@@ -38,3 +38,15 @@ describe("planMerge", () => {
     expect(plan).toMatchObject({ inserts: [], updates: [], unchanged: 1 });
   });
 });
+
+describe("average rating", () => {
+  it("takes Goodreads' current average even when one is already stored", () => {
+    const local = book({ title: "Dune", author: "Frank Herbert", shelf: "to_read", goodreads_id: "1", avg_rating: 4.1 });
+    const plan = planMerge([local], [emptyBook({ title: "Dune", author: "Frank Herbert", shelf: "to_read", goodreads_id: "1", avg_rating: 4.27 })]);
+    expect(plan.updates).toEqual([{ id: local.id, patch: { avg_rating: 4.27 } }]);
+  });
+  it("leaves it alone when the import has none (exports without that column)", () => {
+    const local = book({ title: "Dune", author: "Frank Herbert", shelf: "to_read", goodreads_id: "1", avg_rating: 4.1 });
+    expect(planMerge([local], [emptyBook({ title: "Dune", author: "Frank Herbert", shelf: "to_read", goodreads_id: "1" })]).unchanged).toBe(1);
+  });
+});
