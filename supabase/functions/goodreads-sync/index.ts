@@ -33,10 +33,16 @@ async function fetchShelf(userId: string, shelf: string, key: string | null): Pr
     const res = await fetch(goodreadsRssUrl(userId, shelf, page, key), {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; ReadingApp/0.1)" },
     });
-    if (res.status === 404) throw new Error("Goodreads user not found. Check the user id.");
+    if (res.status === 404) {
+      throw new Error(
+        key
+          ? "Goodreads didn't find that feed. Check the RSS link: copy it again from My Books → RSS (bottom of the page)."
+          : "Goodreads needs your RSS link. On goodreads.com go to My Books, tap RSS at the bottom of the page, and paste that link here.",
+      );
+    }
     if (!res.ok) throw new Error(`Goodreads returned ${res.status} for the ${shelf} shelf.`);
     const xml = await res.text();
-    if (!xml.includes("<rss")) throw new Error("Goodreads didn't return a feed. If your profile is private, add the RSS key.");
+    if (!xml.includes("<rss")) throw new Error("Goodreads didn't return a feed. Paste your RSS link from My Books → RSS (bottom of the page).");
     const books = parseGoodreadsRss(xml, mapGoodreadsShelf(shelf));
     const fresh = books.filter((b) => b.goodreads_id && !seen.has(b.goodreads_id));
     if (fresh.length === 0) break; // empty page, or Goodreads repeating the last page

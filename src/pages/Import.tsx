@@ -111,15 +111,18 @@ function RssSync() {
     setError(null);
     setStatus(null);
     const id = userInput.trim() ? parseGoodreadsUserId(userInput) : null;
+    // A pasted RSS link carries the key too: …/review/list_rss/123?key=abc&shelf=read
+    const keyFromLink = userInput.match(/[?&]key=([^&\s]+)/)?.[1] ?? null;
     if (userInput.trim() && !id) {
       setError("Couldn't find a user id. Paste your profile link, e.g. goodreads.com/user/show/12345678-name");
       return;
     }
     try {
-      const patch = { goodreads_user_id: id, goodreads_rss_key: key.trim() || null };
+      const patch = { goodreads_user_id: id, goodreads_rss_key: keyFromLink ?? (key.trim() || null) };
       await store.saveSettings(patch);
       setSettings((s) => (s ? { ...s, ...patch } : s));
       setUserInput(id ?? "");
+      if (keyFromLink) setKey(keyFromLink);
       setStatus("Saved.");
     } catch (err) {
       setError((err as Error).message);
@@ -150,11 +153,14 @@ function RssSync() {
       </p>
       <form className="stack" onSubmit={save}>
         <label>
-          Goodreads profile link or user id
-          <input type="text" inputMode="url" value={userInput} onChange={(e) => setUserInput(e.target.value)} placeholder="https://www.goodreads.com/user/show/12345678-you" />
+          Goodreads RSS link (or profile link)
+          <input type="text" inputMode="url" value={userInput} onChange={(e) => setUserInput(e.target.value)} placeholder="https://www.goodreads.com/review/list_rss/12345678?key=…" />
+          <span className="muted" style={{ fontWeight: 400 }}>
+            On goodreads.com: My Books → RSS at the bottom of the page. Copy that link and paste it here.
+          </span>
         </label>
         <label>
-          RSS key <span className="muted" style={{ fontWeight: 400 }}>(only if your profile is private)</span>
+          RSS key <span className="muted" style={{ fontWeight: 400 }}>(filled in from the RSS link)</span>
           <input type="text" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
         </label>
         <div className="row">
